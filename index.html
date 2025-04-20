@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>InstChat - Social Chat Platform</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <!-- App Container -->
+    <div class="app-container">
+        <!-- Auth Section -->
+        <div class="auth-container" id="auth-container">
+            <div class="auth-box">
+                <div class="logo">
+                    <h1>InstChat</h1>
+                    <p>Connect, Share, Chat</p>
+                </div>
+                
+                <div class="auth-tabs">
+                    <button class="tab-btn active" id="login-tab">Login</button>
+                    <button class="tab-btn" id="signup-tab">Sign Up</button>
+                </div>
+                
+                <!-- Login Form -->
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="login-username">Username</label>
+                        <input type="text" id="login-username" placeholder="Enter your username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" placeholder="Enter your password" required>
+                    </div>
+                    <button type="submit" class="auth-btn">Login</button>
+                </form>
+                
+                <!-- Signup Form -->
+                <form id="signup-form" class="auth-form hidden">
+                    <div class="form-group">
+                        <label for="signup-username">Username</label>
+                        <input type="text" id="signup-username" placeholder="Choose a username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-fullname">Full Name</label>
+                        <input type="text" id="signup-fullname" placeholder="Enter your full name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-bio">Bio</label>
+                        <textarea id="signup-bio" placeholder="Tell us about yourself" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-password">Password</label>
+                        <input type="password" id="signup-password" placeholder="Create a password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="signup-confirm-password">Confirm Password</label>
+                        <input type="password" id="signup-confirm-password" placeholder="Confirm your password" required>
+                    </div>
+                    <button type="submit" class="auth-btn">Sign Up</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Main App Section -->
+        <div class="main-container hidden" id="main-container">
+            <!-- Navigation -->
+            <nav class="main-nav">
+                <div class="nav-logo">
+                    <h2>InstChat</h2>
+                </div>
+                <div class="nav-links">
+                    <button id="home-btn" class="nav-btn active"><i class="fas fa-home"></i><span>Home</span></button>
+                    <button id="explore-btn" class="nav-btn"><i class="fas fa-compass"></i><span>Explore</span></button>
+                    <button id="messages-btn" class="nav-btn"><i class="fas fa-comment"></i><span>Messages</span></button>
+                    <button id="notifications-btn" class="nav-btn"><i class="fas fa-bell"></i><span>Notifications</span></button>
+                    <button id="profile-btn" class="nav-btn"><i class="fas fa-user"></i><span>Profile</span></button>
+                </div>
+                <div class="nav-actions">
+                    <button id="create-room-btn" class="create-btn"><i class="fas fa-plus-circle"></i><span>Create</span></button>
+                    <button id="main-logout-btn" class="logout-btn"><i class="fas fa-sign-out-alt"></i></button>
+                </div>
+            </nav>
+            
+            <!-- Content Area -->
+            <div class="content-area">
+                <!-- Home Section -->
+                <div class="home-section section" id="home-section">
+                    <div class="section-header">
+                        <h2>Home</h2>
+                    </div>
+                    <div class="rooms-grid">
+                        <div class="room-card global-room-card">
+                            <div class="room-card-header">
+                                <h3>Global Room</h3>
+                                <span class="room-members"><i class="fas fa-users"></i> <span id="global-room-count">0</span></span>
+                            </div>
+                            <div class="room-card-body">
+                                <p>Chat with everyone in the global community</p>
+                            </div>
+                            <div class="room-card-footer">
+                                <button class="join-room-btn" data-room="global">Join Room</button>
+                            </div>
+                        </div>
+                        
+                        <div id="recent-rooms-container">
+                            <!-- Recent rooms will be added here dynamically -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Explore Section -->
+                <div class="explore-section section hidden" id="explore-section">
+                    <div class="section-header">
+                        <h2>Explore</h2>
+                        <div class="search-container">
+                            <input type="text" id="explore-search" placeholder="Search rooms or users...">
+                            <button id="search-btn"><i class="fas fa-search"></i></button>
+                        </div>
+                    </div>
+                    <div class="explore-tabs">
+                        <button class="explore-tab active" data-tab="rooms">Rooms</button>
+                        <button class="explore-tab" data-tab="users">Users</button>
+                    </div>
+                    <div class="explore-content">
+                        <div class="explore-rooms-grid" id="explore-rooms">
+                            <!-- Public rooms will be added here dynamically -->
+                        </div>
+                        <div class="explore-users-grid hidden" id="explore-users">
+                            <!-- Users will be added here dynamically -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Messages Section -->
+                <div class="messages-section section hidden" id="messages-section">
+                    <div class="section-header">
+                        <h2>Messages</h2>
+                        <button id="new-message-btn" class="icon-btn"><i class="fas fa-edit"></i></button>
+                    </div>
+                    <div class="messages-tabs">
+                        <button class="messages-tab active" data-tab="chats">Chats</button>
+                        <button class="messages-tab" data-tab="rooms">Rooms</button>
+                    </div>
+                    <div class="messages-list" id="chats-list">
+                        <!-- Direct chats will be added here dynamically -->
+                    </div>
+                    <div class="messages-list hidden" id="rooms-list">
+                        <!-- Rooms will be added here dynamically -->
+                    </div>
+                </div>
+                
+                <!-- Notifications Section -->
+                <div class="notifications-section section hidden" id="notifications-section">
+                    <div class="section-header">
+                        <h2>Notifications</h2>
+                    </div>
+                    <div class="notifications-list" id="notifications-list">
+                        <!-- Notifications will be added here dynamically -->
+                    </div>
+                </div>
+                
+                <!-- Profile Section -->
+                <div class="profile-section section hidden" id="profile-section">
+                    <div class="profile-header">
+                        <div class="profile-cover">
+                            <button id="edit-cover-btn" class="edit-cover-btn"><i class="fas fa-camera"></i></button>
+                        </div>
+                        <div class="profile-info">
+                            <div class="profile-avatar">
+                                <img id="profile-avatar-img" src="https://via.placeholder.com/150" alt="Profile Avatar">
+                                <button id="edit-avatar-btn" class="edit-avatar-btn"><i class="fas fa-camera"></i></button>
+                            </div>
+                            <div class="profile-details">
+                                <h2 id="profile-username">Username</h2>
+                                <p id="profile-fullname">Full Name</p>
+                                <p id="profile-bio">Bio goes here...</p>
+                            </div>
+                            <div class="profile-stats">
+                                <div class="stat">
+                                    <span id="following-count">0</span>
+                                    <span>Following</span>
+                                </div>
+                                <div class="stat">
+                                    <span id="followers-count">0</span>
+                                    <span>Followers</span>
+                                </div>
+                                <div class="stat">
+                                    <span id="rooms-count">0</span>
+                                    <span>Rooms</span>
+                                </div>
+                            </div>
+                            <button id="edit-profile-btn" class="edit-profile-btn">Edit Profile</button>
+                        </div>
+                    </div>
+                    <div class="profile-content">
+                        <div class="profile-tabs">
+                            <button class="profile-tab active" data-tab="rooms">Rooms</button>
+                            <button class="profile-tab" data-tab="following">Following</button>
+                            <button class="profile-tab" data-tab="followers">Followers</button>
+                        </div>
+                        <div class="profile-tab-content">
+                            <div class="profile-rooms" id="profile-rooms">
+                                <!-- User's rooms will be added here dynamically -->
+                            </div>
+                            <div class="profile-following hidden" id="profile-following">
+                                <!-- Following users will be added here dynamically -->
+                            </div>
+                            <div class="profile-followers hidden" id="profile-followers">
+                                <!-- Follower users will be added here dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- User Profile View Section -->
+        <div class="user-profile-view hidden" id="user-profile-view">
+            <div class="view-header">
+                <button class="back-btn" id="user-profile-back-btn"><i class="fas fa-arrow-left"></i></button>
+                <h2>Profile</h2>
+            </div>
+            <div class="user-profile-content">
+                <div class="user-profile-header">
+                    <div class="user-avatar">
+                        <img id="user-avatar-img" src="https://via.placeholder.com/150" alt="User Avatar">
+                    </div>
+                    <div class="user-profile-details">
+                        <h2 id="user-profile-username">Username</h2>
+                        <p id="user-profile-fullname">Full Name</p>
+                        <p id="user-profile-bio">Bio goes here...</p>
+                    </div>
+                    <div class="user-profile-stats">
+                        <div class="stat">
+                            <span id="user-following-count">0</span>
+                            <span>Following</span>
+                        </div>
+                        <div class="stat">
+                            <span id="user-followers-count">0</span>
+                            <span>Followers</span>
+                        </div>
+                        <div class="stat">
+                            <span id="user-rooms-count">0</span>
+                            <span>Rooms</span>
+                        </div>
+                    </div>
+                    <div class="user-profile-actions">
+                        <button id="follow-user-btn" class="follow-btn">Follow</button>
+                        <button id="message-user-btn" class="message-btn">Message</button>
+                    </div>
+                </div>
+                <div class="user-profile-tabs">
+                    <button class="user-profile-tab active" data-tab="rooms">Rooms</button>
+                </div>
+                <div class="user-profile-tab-content">
+                    <div class="user-profile-rooms" id="user-profile-rooms">
+                        <!-- User's rooms will be added here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Create Room Modal -->
+        <div class="modal hidden" id="create-room-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Create New Room</h3>
+                    <button class="close-modal-btn"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="create-room-form">
+                        <div class="form-group">
+                            <label for="room-name">Room Name</label>
+                            <input type="text" id="room-name" placeholder="Enter room name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="room-description">Description</label>
+                            <textarea id="room-description" placeholder="Describe your room" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="room-type">Room Type</label>
+                            <select id="room-type">
+                                <option value="public">Public</option>
+                                <option value="private">Private (Password Protected)</option>
+                            </select>
+                        </div>
+                        <div class="form-group hidden" id="room-password-group">
+                            <label for="room-password">Password</label>
+                            <input type="password" id="room-password" placeholder="Enter room password">
+                        </div>
+                        <button type="submit" class="modal-btn">Create Room</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Edit Profile Modal -->
+        <div class="modal hidden" id="edit-profile-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Edit Profile</h3>
+                    <button class="close-modal-btn"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-profile-form">
+                        <div class="form-group">
+                            <label for="edit-username">Username</label>
+                            <input type="text" id="edit-username" placeholder="Enter username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-fullname">Full Name</label>
+                            <input type="text" id="edit-fullname" placeholder="Enter full name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-bio">Bio</label>
+                            <textarea id="edit-bio" placeholder="Tell us about yourself" rows="3"></textarea>
+                        </div>
+                        <button type="submit" class="modal-btn">Save Changes</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- New Message Modal -->
+        <div class="modal hidden" id="new-message-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>New Message</h3>
+                    <button class="close-modal-btn"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="search-container">
+                        <input type="text" id="user-search" placeholder="Search for users...">
+                    </div>
+                    <div class="users-list" id="message-users-list">
+                        <!-- Users will be added here dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Join Private Room Modal -->
+        <div class="modal hidden" id="join-private-room-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="private-room-name">Join Private Room</h3>
+                    <button class="close-modal-btn"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <form id="join-private-room-form">
+                        <div class="form-group">
+                            <label for="private-room-password">Password</label>
+                            <input type="password" id="private-room-password" placeholder="Enter room password" required>
+                        </div>
+                        <button type="submit" class="modal-btn">Join Room</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chat Section -->
+        <div class="chat-container hidden" id="chat-container">
+            <div class="chat-header">
+                <button id="back-btn" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+                <div class="room-info">
+                    <h2 id="current-room-name">Room Name</h2>
+                    <span id="room-members-count">0 members</span>
+                </div>
+                <div class="room-actions">
+                    <button id="room-info-btn" class="icon-btn"><i class="fas fa-info-circle"></i></button>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <!-- Messages will be added here dynamically -->
+            </div>
+            
+            <div class="reply-container hidden" id="reply-container">
+                <div class="reply-preview">
+                    <div class="reply-text" id="reply-text"></div>
+                    <button id="cancel-reply-btn" class="cancel-reply-btn"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <button class="attachment-btn" id="attachment-btn"><i class="fas fa-paperclip"></i></button>
+                <button class="emoji-btn" id="emoji-btn"><i class="far fa-smile"></i></button>
+                <div class="message-input-container">
+                    <input type="text" id="message-input" placeholder="Type a message...">
+                    <div class="typing-indicator hidden" id="typing-indicator">
+                        <span>Someone is typing</span>
+                        <div class="typing-dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                    </div>
+                </div>
+                <button id="send-btn" class="send-btn"><i class="fas fa-paper-plane"></i></button>
+            </div>
+            
+            <!-- File Upload Menu -->
+            <div class="file-menu hidden" id="file-menu">
+                <button class="file-option" id="upload-image-btn">
+                    <i class="fas fa-image"></i>
+                    <span>Image</span>
+                </button>
+                <button class="file-option" id="upload-file-btn">
+                    <i class="fas fa-file"></i>
+                    <span>File</span>
+                </button>
+                <input type="file" id="file-input" class="hidden" accept="image/*,.pdf,.doc,.docx,.txt">
+            </div>
+        </div>
+        
+        <!-- Direct Chat Section -->
+        <div class="direct-chat-container hidden" id="direct-chat-container">
+            <div class="chat-header">
+                <button id="direct-back-btn" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+                <div class="user-chat-info">
+                    <img id="chat-user-avatar" src="https://via.placeholder.com/40" alt="User Avatar">
+                    <div>
+                        <h2 id="chat-user-name">Username</h2>
+                        <span id="chat-user-status">Online</span>
+                    </div>
+                </div>
+                <div class="chat-actions">
+                    <button id="view-profile-btn" class="icon-btn"><i class="fas fa-user"></i></button>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="direct-chat-messages">
+                <!-- Messages will be added here dynamically -->
+            </div>
+            
+            <div class="reply-container hidden" id="direct-reply-container">
+                <div class="reply-preview">
+                    <div class="reply-text" id="direct-reply-text"></div>
+                    <button id="direct-cancel-reply-btn" class="cancel-reply-btn"><i class="fas fa-times"></i></button>
+                </div>
+            </div>
+            
+            <div class="chat-input">
+                <button class="attachment-btn" id="direct-attachment-btn"><i class="fas fa-paperclip"></i></button>
+                <button class="emoji-btn" id="direct-emoji-btn"><i class="far fa-smile"></i></button>
+                <div class="message-input-container">
+                    <input type="text" id="direct-message-input" placeholder="Type a message...">
+                    <div class="typing-indicator hidden" id="direct-typing-indicator">
+                        <span>Username is typing</span>
+                        <div class="typing-dots">
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                            <span class="dot"></span>
+                        </div>
+                    </div>
+                </div>
+                <button id="direct-send-btn" class="send-btn"><i class="fas fa-paper-plane"></i></button>
+            </div>
+            
+            <!-- File Upload Menu -->
+            <div class="file-menu hidden" id="direct-file-menu">
+                <button class="file-option" id="direct-upload-image-btn">
+                    <i class="fas fa-image"></i>
+                    <span>Image</span>
+                </button>
+                <button class="file-option" id="direct-upload-file-btn">
+                    <i class="fas fa-file"></i>
+                    <span>File</span>
+                </button>
+                <input type="file" id="direct-file-input" class="hidden" accept="image/*,.pdf,.doc,.docx,.txt">
+            </div>
+        </div>
+        
+        <!-- Room Info Modal -->
+        <div class="modal hidden" id="room-info-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modal-room-name">Room Name</h3>
+                    <button id="close-modal-btn" class="close-modal-btn"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="room-description" id="modal-room-description">
+                        <h4>Description</h4>
+                        <p>Room description goes here...</p>
+                    </div>
+                    <div class="room-type" id="modal-room-type">
+                        <h4>Room Type</h4>
+                        <p><span id="room-type-badge" class="badge">Public</span></p>
+                    </div>
+                    <div class="room-members">
+                        <h4>Members</h4>
+                        <ul id="room-members-list" class="members-list">
+                            <!-- Room members will be added here dynamically -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Image Preview Modal -->
+        <div class="image-preview-modal hidden" id="image-preview-modal">
+            <div class="image-preview-header">
+                <button class="close-preview-btn"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="image-preview-content">
+                <img id="preview-image" src="" alt="Preview">
+            </div>
+        </div>
+        
+        <!-- Emoji Picker -->
+        <div class="emoji-picker hidden" id="emoji-picker">
+            <div class="emoji-categories">
+                <button class="emoji-category active" data-category="smileys">😊</button>
+                <button class="emoji-category" data-category="people">👋</button>
+                <button class="emoji-category" data-category="animals">🐶</button>
+                <button class="emoji-category" data-category="food">🍎</button>
+                <button class="emoji-category" data-category="travel">🚗</button>
+                <button class="emoji-category" data-category="activities">⚽</button>
+                <button class="emoji-category" data-category="objects">💡</button>
+                <button class="emoji-category" data-category="symbols">❤️</button>
+            </div>
+            <div class="emoji-list" id="emoji-list">
+                <!-- Emojis will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- Message Template (Hidden) -->
+    <template id="message-template">
+        <div class="message">
+            <div class="message-avatar">
+                <img src="https://via.placeholder.com/40" alt="User Avatar">
+            </div>
+            <div class="message-content">
+                <div class="message-header">
+                    <span class="message-sender"></span>
+                </div>
+                <div class="replied-message hidden">
+                    <div class="replied-content"></div>
+                </div>
+                <div class="message-body"></div>
+                <div class="message-media hidden">
+                    <img class="message-image" src="" alt="Shared image">
+                    <div class="file-attachment hidden">
+                        <i class="fas fa-file"></i>
+                        <span class="file-name"></span>
+                        <a class="download-btn" href="#" download><i class="fas fa-download"></i></a>
+                    </div>
+                </div>
+                <div class="message-footer">
+                    <span class="message-time"></span>
+                </div>
+            </div>
+            <div class="message-actions">
+                <button class="reply-btn"><i class="fas fa-reply"></i></button>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Room Card Template (Hidden) -->
+    <template id="room-card-template">
+        <div class="room-card">
+            <div class="room-card-header">
+                <h3 class="room-name"></h3>
+                <span class="room-members"><i class="fas fa-users"></i> <span class="members-count">0</span></span>
+            </div>
+            <div class="room-card-body">
+                <p class="room-description"></p>
+            </div>
+            <div class="room-card-footer">
+                <span class="room-type-badge"></span>
+                <button class="join-room-btn">Join Room</button>
+            </div>
+        </div>
+    </template>
+    
+    <!-- User Card Template (Hidden) -->
+    <template id="user-card-template">
+        <div class="user-card">
+            <div class="user-card-avatar">
+                <img src="https://via.placeholder.com/80" alt="User Avatar">
+            </div>
+            <div class="user-card-info">
+                <h3 class="user-card-username"></h3>
+                <p class="user-card-fullname"></p>
+            </div>
+            <div class="user-card-actions">
+                <button class="follow-btn">Follow</button>
+                <button class="message-btn"><i class="fas fa-comment"></i></button>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Chat List Item Template (Hidden) -->
+    <template id="chat-list-item-template">
+        <div class="chat-list-item">
+            <div class="chat-item-avatar">
+                <img src="https://via.placeholder.com/50" alt="Chat Avatar">
+            </div>
+            <div class="chat-item-content">
+                <div class="chat-item-header">
+                    <h3 class="chat-item-name"></h3>
+                    <span class="chat-item-time"></span>
+                </div>
+                <div class="chat-item-message"></div>
+            </div>
+            <div class="chat-item-badge hidden">
+                <span>1</span>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Notification Item Template (Hidden) -->
+    <template id="notification-item-template">
+        <div class="notification-item">
+            <div class="notification-avatar">
+                <img src="https://via.placeholder.com/40" alt="User Avatar">
+            </div>
+            <div class="notification-content">
+                <p class="notification-text"></p>
+                <span class="notification-time"></span>
+            </div>
+            <div class="notification-actions">
+                <button class="notification-action-btn"></button>
+            </div>
+        </div>
+    </template>
+    
+    <!-- Overlay -->
+    <div class="overlay hidden" id="overlay"></div>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics-compat.js"></script>
+    
+    <!-- App Scripts -->
+    <script src="firebase-config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
