@@ -311,14 +311,18 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Sign in with Firebase Auth
+            console.log('Attempting to sign in with Firebase Auth...');
             auth.signInWithEmailAndPassword(email, password)
+                .then(userCredential => {
+                    console.log('Sign in successful:', userCredential.user.uid);
+                })
                 .catch(error => {
                     console.error('Error signing in:', error);
                     if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
                         alert('Invalid username or password');
                     } else if (error.code === 'auth/configuration-not-found') {
-                        alert('Authentication configuration error. Please try again later.');
-                        console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console.');
+                        alert('Authentication configuration error. Please make sure this domain ('+window.location.hostname+') is added to authorized domains in Firebase console.');
+                        console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console: https://console.firebase.google.com/project/instchat-79b7c/authentication/settings');
                     } else {
                         alert('Error signing in: ' + error.message);
                     }
@@ -354,8 +358,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     
         // Create user with Firebase Auth
+                    console.log('Attempting to create user with Firebase Auth...');
                     auth.createUserWithEmailAndPassword(email, password)
                         .then(userCredential => {
+                            console.log('User created successfully:', userCredential.user.uid);
                             // Add user data to Firestore
                             return db.collection('users').doc(userCredential.user.uid).set({
                                 uid: userCredential.user.uid,
@@ -373,8 +379,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         .catch(error => {
                             console.error('Error creating user:', error);
                             if (error.code === 'auth/configuration-not-found') {
-                                alert('Authentication configuration error. Please try again later.');
-                                console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console.');
+                                alert('Authentication configuration error. Please make sure this domain ('+window.location.hostname+') is added to authorized domains in Firebase console.');
+                                console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console: https://console.firebase.google.com/project/instchat-79b7c/authentication/settings');
+                            } else if (error.code === 'auth/email-already-in-use') {
+                                alert('This username is already in use. Please choose a different username.');
                             } else {
                                 alert('Error creating account: ' + error.message);
                             }
