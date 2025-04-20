@@ -1,5 +1,7 @@
 // Enhanced Chat Application JavaScript with Firebase Integration
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM fully loaded and parsed');
+    
     // DOM Elements - Auth
     const authContainer = document.getElementById('auth-container');
     const loginTab = document.getElementById('login-tab');
@@ -223,32 +225,58 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize the app
     function init() {
+        console.log('Initializing app...');
+        
         // Initialize emoji picker
         initEmojiPicker();
         
         // Set up auth state listener
         auth.onAuthStateChanged(user => {
+            console.log('Auth state changed:', user ? 'User logged in' : 'User logged out');
             if (user) {
                 // User is signed in
                 state.currentUser = user.uid;
+                console.log('Current user ID:', state.currentUser);
                 
                 // Get user data from Firestore
                 getUserData(user.uid).then(userData => {
                     state.currentUserData = userData;
+                    console.log('User data loaded:', userData);
                     showMainContainer();
                     loadHomeSection();
+                    
+                    // Initialize Firestore listeners
+                    initializeFirestoreListeners();
                 });
             } else {
                 // User is signed out
                 state.currentUser = null;
                 state.currentUserData = null;
                 showAuthContainer();
+                
+                // Clean up any existing listeners
+                Object.values(state.unsubscribeListeners).forEach(unsubscribe => {
+                    if (typeof unsubscribe === 'function') {
+                        unsubscribe();
+                    }
+                });
+                state.unsubscribeListeners = {};
             }
         });
         
         // Create global room if it doesn't exist
+        ensureGlobalRoomExists();
+        
+        // Set up event listeners
+        setupEventListeners();
+    }
+    
+    // Ensure global room exists
+    function ensureGlobalRoomExists() {
+        console.log('Checking if global room exists...');
         db.collection('rooms').doc('global').get().then(doc => {
             if (!doc.exists) {
+                console.log('Global room does not exist, creating it...');
                 db.collection('rooms').doc('global').set({
                     id: 'global',
                     name: 'Global Room',
@@ -258,19 +286,54 @@ document.addEventListener('DOMContentLoaded', function() {
                     creator: 'system',
                     members: [],
                     createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                }).then(() => {
+                    console.log('Global room created successfully');
+                }).catch(error => {
+                    console.error('Error creating global room:', error);
                 });
+            } else {
+                console.log('Global room exists');
             }
+        }).catch(error => {
+            console.error('Error checking global room:', error);
         });
+    }
+    
+    // Initialize Firestore listeners
+    function initializeFirestoreListeners() {
+        console.log('Initializing Firestore listeners...');
         
-        // Set up event listeners
-        setupEventListeners();
+        // Listen for rooms
+        state.unsubscribeListeners.rooms = db.collection('rooms').onSnapshot(snapshot => {
+            console.log('Rooms snapshot received:', snapshot.docs.length, 'rooms');
+            const roomsData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            updateRoomsList(roomsData);
+            
+            // Check if global room exists, create it if not
+            const globalRoom = roomsData.find(room => room.id === 'global');
+            if (!globalRoom) {
+                console.log('Global room not found in snapshot, creating it...');
+                ensureGlobalRoomExists();
+            }
+        }, error => {
+            console.error('Error listening for rooms:', error);
+            alert('Error loading chat rooms. Please check console for details.');
+        });
+
+        // Listen for global messages initially
+        joinRoom('global');
     }
     
     // Get user data from Firestore
     async function getUserData(userId) {
         try {
+            console.log('Getting user data for:', userId);
             const doc = await db.collection('users').doc(userId).get();
             if (doc.exists) {
+                console.log('User data found');
                 return doc.data();
             } else {
                 console.log('No user data found!');
@@ -301,10 +364,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         loginForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            const email = document.getElementById('login-username').value.trim() + '@instchat.com'; // Using username as email
+            const email = document.getElementById('login-email').value.trim();
             const password = document.getElementById('login-password').value;
             
-            // Simple validation
             if (!email || !password) {
                 alert('Please enter both username and password');
                 return;
@@ -336,13 +398,13 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             const username = document.getElementById('signup-username').value.trim();
             const fullname = document.getElementById('signup-fullname').value.trim();
-            const bio = document.getElementById('signup-bio').value.trim();
+            const email = document.getElementById('signup-email').value.trim();
             const password = document.getElementById('signup-password').value;
             const confirmPassword = document.getElementById('signup-confirm-password').value;
-            const email = username + '@instchat.com'; // Using username as email
+            const bio = document.getElementById('signup-bio').value.trim();
             
             // Simple validation
-            if (!username || !fullname || !password || !confirmPassword) {
+            if (!username || !fullname || !email || !password) {
                 alert('Please fill in all required fields');
                 return;
             }
@@ -352,7 +414,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            // Check if username already exists
+            // Check if username is already taken
             db.collection('users').where('username', '==', username).get()
                 .then(snapshot => {
                     if (!snapshot.empty) {
@@ -473,6 +535,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Create room ID from name (lowercase, replace spaces with underscores)
             const roomId = roomName.toLowerCase().replace(/\s+/g, '_');
             
+            console.log('Creating room:', roomId);
+            
             // Check if room already exists
             db.collection('rooms').doc(roomId).get()
                 .then(doc => {
@@ -480,6 +544,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         alert('A room with this name already exists');
                         return;
                     }
+                    
+                    console.log('Room does not exist, creating it...');
                     
                     // Create new room in Firestore
                     return db.collection('rooms').doc(roomId).set({
@@ -494,6 +560,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 })
                 .then(() => {
+                    if (!roomId) return; // If room creation was aborted
+                    
+                    console.log('Room created successfully, updating user data...');
+                    
                     // Add room to user's rooms
                     return db.collection('users').doc(state.currentUser).update({
                         rooms: firebase.firestore.FieldValue.arrayUnion(roomId),
@@ -501,16 +571,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 })
                 .then(() => {
-                    // Add system message for room creation
-                    return addSystemMessage(roomId, `${state.currentUserData.username} created this room`);
-                })
-                .then(() => {
-                    // Close modal and refresh home section
-                    hideModal(createRoomModal);
-                    loadHomeSection();
+                    if (!roomId) return; // If room creation was aborted
                     
-                    // Join the newly created room
+                    console.log('User data updated, joining room...');
+                    
+                    // Hide modal and join the new room
+                    hideModal(createRoomModal);
                     joinRoom(roomId);
+                    
+                    // Reset form
+                    createRoomForm.reset();
+                    roomPasswordGroup.classList.add('hidden');
                 })
                 .catch(error => {
                     console.error('Error creating room:', error);
@@ -519,82 +590,367 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         // Edit profile form event listener
-        editProfileBtn.addEventListener('click', function() {
-            // Populate form with current user data
-            document.getElementById('edit-username').value = state.currentUserData.username;
-            document.getElementById('edit-fullname').value = state.currentUserData.fullname;
-            document.getElementById('edit-bio').value = state.currentUserData.bio;
-            
-            showModal(editProfileModal);
-        });
-        
         editProfileForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            const username = document.getElementById('edit-username').value.trim();
             const fullname = document.getElementById('edit-fullname').value.trim();
             const bio = document.getElementById('edit-bio').value.trim();
             
-            // Simple validation
-            if (!username || !fullname) {
-                alert('Please fill in all required fields');
-                return;
+            // Update user data in Firestore
+            db.collection('users').doc(state.currentUser).update({
+                fullname: fullname,
+                bio: bio
+            })
+            .then(() => {
+                // Update local user data
+                state.currentUserData.fullname = fullname;
+                state.currentUserData.bio = bio;
+                
+                // Update profile display
+                profileFullname.textContent = fullname;
+                profileBio.textContent = bio;
+                
+                // Hide modal
+                hideModal(editProfileModal);
+            })
+            .catch(error => {
+                console.error('Error updating profile:', error);
+                alert('Error updating profile: ' + error.message);
+            });
+        });
+        
+        // Back button event listeners
+        backBtn.addEventListener('click', function() {
+            // Unsubscribe from room messages listener
+            if (state.unsubscribeListeners.roomMessages) {
+                state.unsubscribeListeners.roomMessages();
+                delete state.unsubscribeListeners.roomMessages;
             }
             
-            // Check if username is changed and already exists
-            if (username !== state.currentUserData.username) {
-                db.collection('users').where('username', '==', username).get()
-                    .then(snapshot => {
-                        if (!snapshot.empty) {
-                            alert('Username already taken');
-                            return Promise.reject('Username taken');
-                        }
-                        
-                        // Update user data in Firestore
-                        return db.collection('users').doc(state.currentUser).update({
-                            username: username,
-                            fullname: fullname,
-                            bio: bio || 'No bio yet'
-                        });
-                    })
-                    .then(() => {
-                        // Update state
-                        state.currentUserData.username = username;
-                        state.currentUserData.fullname = fullname;
-                        state.currentUserData.bio = bio || 'No bio yet';
-                        
-                        // Close modal and refresh profile section
-                        hideModal(editProfileModal);
-                        loadProfileSection();
-                    })
-                    .catch(error => {
-                        if (error !== 'Username taken') {
-                            console.error('Error updating profile:', error);
-                            alert('Error updating profile: ' + error.message);
-                        }
-                    });
-            } else {
-                // Update user data in Firestore (username not changed)
-                db.collection('users').doc(state.currentUser).update({
-                    fullname: fullname,
-                    bio: bio || 'No bio yet'
-                })
-                .then(() => {
-                    // Update state
-                    state.currentUserData.fullname = fullname;
-                    state.currentUserData.bio = bio || 'No bio yet';
-                    
-                    // Close modal and refresh profile section
-                    hideModal(editProfileModal);
-                    loadProfileSection();
-                })
-                .catch(error => {
-                    console.error('Error updating profile:', error);
-                    alert('Error updating profile: ' + error.message);
-                });
+            // Reset state
+            state.currentRoom = null;
+            state.replyingTo = null;
+            
+            // Show main container
+            chatContainer.classList.add('hidden');
+            mainContainer.classList.remove('hidden');
+            
+            // Clear chat messages
+            chatMessages.innerHTML = '';
+        });
+        
+        directBackBtn.addEventListener('click', function() {
+            // Unsubscribe from direct messages listener
+            if (state.unsubscribeListeners.directMessages) {
+                state.unsubscribeListeners.directMessages();
+                delete state.unsubscribeListeners.directMessages;
+            }
+            
+            // Reset state
+            state.currentChat = null;
+            state.directReplyingTo = null;
+            
+            // Show main container
+            directChatContainer.classList.add('hidden');
+            mainContainer.classList.remove('hidden');
+            
+            // Clear direct chat messages
+            directChatMessages.innerHTML = '';
+        });
+        
+        userProfileBackBtn.addEventListener('click', function() {
+            // Show main container
+            userProfileView.classList.add('hidden');
+            mainContainer.classList.remove('hidden');
+            
+            // Reset state
+            state.viewingUser = null;
+        });
+        
+        // Send button event listeners
+        sendBtn.addEventListener('click', function() {
+            sendMessage();
+        });
+        
+        directSendBtn.addEventListener('click', function() {
+            sendDirectMessage();
+        });
+        
+        // Message input event listeners
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
             }
         });
         
-        // Avatar and cover photo upload
+        directMessageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendDirectMessage();
+            }
+        });
+        
+        // Typing indicator event listeners
+        messageInput.addEventListener('input', function() {
+            // Clear previous timeout
+            if (state.typingTimeout) {
+                clearTimeout(state.typingTimeout);
+            }
+            
+            // Set typing status in Firestore
+            db.collection('rooms').doc(state.currentRoom).collection('typing').doc(state.currentUser).set({
+                username: state.currentUserData.username,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Clear typing status after 2 seconds of inactivity
+            state.typingTimeout = setTimeout(() => {
+                db.collection('rooms').doc(state.currentRoom).collection('typing').doc(state.currentUser).delete();
+            }, 2000);
+        });
+        
+        directMessageInput.addEventListener('input', function() {
+            // Clear previous timeout
+            if (state.directTypingTimeout) {
+                clearTimeout(state.directTypingTimeout);
+            }
+            
+            // Set typing status in Firestore
+            db.collection('chats').doc(state.currentChat).collection('typing').doc(state.currentUser).set({
+                username: state.currentUserData.username,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            
+            // Clear typing status after 2 seconds of inactivity
+            state.directTypingTimeout = setTimeout(() => {
+                db.collection('chats').doc(state.currentChat).collection('typing').doc(state.currentUser).delete();
+            }, 2000);
+        });
+        
+        // Room info button event listener
+        roomInfoBtn.addEventListener('click', function() {
+            // Get room data from Firestore
+            db.collection('rooms').doc(state.currentRoom).get()
+                .then(doc => {
+                    if (doc.exists) {
+                        const roomData = doc.data();
+                        
+                        // Set room information in modal
+                        modalRoomName.textContent = roomData.name;
+                        modalRoomDescription.textContent = roomData.description;
+                        
+                        // Set room type badge
+                        if (roomData.type === 'private') {
+                            roomTypeBadge.textContent = 'Private';
+                            roomTypeBadge.className = 'badge private';
+                        } else {
+                            roomTypeBadge.textContent = 'Public';
+                            roomTypeBadge.className = 'badge public';
+                        }
+                        
+                        // Clear room members list
+                        roomMembersList.innerHTML = '';
+                        
+                        // Get room members data
+                        const memberPromises = (roomData.members || []).map(memberId => 
+                            db.collection('users').doc(memberId).get()
+                        );
+                        
+                        return Promise.all(memberPromises);
+                    }
+                    return [];
+                })
+                .then(memberDocs => {
+                    memberDocs.forEach(doc => {
+                        if (doc.exists) {
+                            const userData = doc.data();
+                            const memberItem = document.createElement('div');
+                            memberItem.classList.add('member-item');
+                            memberItem.innerHTML = `
+                                <div class="member-avatar">
+                                    <img src="${userData.avatar}" alt="${userData.username}">
+                                </div>
+                                <div class="member-info">
+                                    <div class="member-username">${userData.username}</div>
+                                    <div class="member-fullname">${userData.fullname}</div>
+                                </div>
+                            `;
+                            roomMembersList.appendChild(memberItem);
+                        }
+                    });
+                    
+                    // Show modal
+                    showModal(roomInfoModal);
+                })
+                .catch(error => {
+                    console.error('Error getting room info:', error);
+                    alert('Error getting room info: ' + error.message);
+                });
+        });
+        
+        // Cancel reply button event listeners
+        cancelReplyBtn.addEventListener('click', function() {
+            state.replyingTo = null;
+            replyContainer.classList.add('hidden');
+        });
+        
+        directCancelReplyBtn.addEventListener('click', function() {
+            state.directReplyingTo = null;
+            directReplyContainer.classList.add('hidden');
+        });
+        
+        // Emoji button event listeners
+        emojiBtn.addEventListener('click', function() {
+            emojiPicker.style.bottom = '80px';
+            emojiPicker.style.left = '50px';
+            emojiPicker.classList.toggle('hidden');
+            overlay.classList.toggle('hidden');
+        });
+        
+        directEmojiBtn.addEventListener('click', function() {
+            emojiPicker.style.bottom = '80px';
+            emojiPicker.style.left = '50px';
+            emojiPicker.classList.toggle('hidden');
+            overlay.classList.toggle('hidden');
+        });
+        
+        // Attachment button event listeners
+        attachmentBtn.addEventListener('click', function() {
+            fileMenu.classList.toggle('hidden');
+        });
+        
+        directAttachmentBtn.addEventListener('click', function() {
+            directFileMenu.classList.toggle('hidden');
+        });
+        
+        // Upload buttons event listeners
+        uploadImageBtn.addEventListener('click', function() {
+            fileInput.setAttribute('accept', 'image/*');
+            fileInput.click();
+        });
+        
+        uploadFileBtn.addEventListener('click', function() {
+            fileInput.setAttribute('accept', '.pdf,.doc,.docx,.txt');
+            fileInput.click();
+        });
+        
+        directUploadImageBtn.addEventListener('click', function() {
+            directFileInput.setAttribute('accept', 'image/*');
+            directFileInput.click();
+        });
+        
+        directUploadFileBtn.addEventListener('click', function() {
+            directFileInput.setAttribute('accept', '.pdf,.doc,.docx,.txt');
+            directFileInput.click();
+        });
+        
+        // File input event listeners
+        fileInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const file = this.files[0];
+                handleFileUpload(file);
+                fileMenu.classList.add('hidden');
+            }
+        });
+        
+        directFileInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const file = this.files[0];
+                handleDirectFileUpload(file);
+                directFileMenu.classList.add('hidden');
+            }
+        });
+        
+        // Close modal buttons event listeners
+        closeModalBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modal = this.closest('.modal');
+                hideModal(modal);
+            });
+        });
+        
+        // Close preview button event listener
+        closePreviewBtn.addEventListener('click', function() {
+            imagePreviewModal.classList.add('hidden');
+        });
+        
+        // Overlay event listener
+        overlay.addEventListener('click', function() {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.classList.add('hidden');
+            });
+            emojiPicker.classList.add('hidden');
+            overlay.classList.add('hidden');
+        });
+        
+        // Explore tabs event listeners
+        exploreTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                exploreTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const tabName = this.dataset.tab;
+                if (tabName === 'rooms') {
+                    exploreRooms.classList.remove('hidden');
+                    exploreUsers.classList.add('hidden');
+                } else if (tabName === 'users') {
+                    exploreRooms.classList.add('hidden');
+                    exploreUsers.classList.remove('hidden');
+                }
+            });
+        });
+        
+        // Messages tabs event listeners
+        messagesTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                messagesTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const tabName = this.dataset.tab;
+                if (tabName === 'chats') {
+                    chatsList.classList.remove('hidden');
+                    roomsList.classList.add('hidden');
+                } else if (tabName === 'rooms') {
+                    chatsList.classList.add('hidden');
+                    roomsList.classList.remove('hidden');
+                }
+            });
+        });
+        
+        // Profile tabs event listeners
+        profileTabs.forEach(tab => {
+            tab.addEventListener('click', function() {
+                profileTabs.forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                const tabName = this.dataset.tab;
+                if (tabName === 'rooms') {
+                    profileRooms.classList.remove('hidden');
+                    profileFollowing.classList.add('hidden');
+                    profileFollowers.classList.add('hidden');
+                } else if (tabName === 'following') {
+                    profileRooms.classList.add('hidden');
+                    profileFollowing.classList.remove('hidden');
+                    profileFollowers.classList.add('hidden');
+                } else if (tabName === 'followers') {
+                    profileRooms.classList.add('hidden');
+                    profileFollowing.classList.add('hidden');
+                    profileFollowers.classList.remove('hidden');
+                }
+            });
+        });
+        
+        // Edit profile button event listener
+        editProfileBtn.addEventListener('click', function() {
+            // Set current values in form
+            document.getElementById('edit-fullname').value = state.currentUserData.fullname;
+            document.getElementById('edit-bio').value = state.currentUserData.bio;
+            
+            // Show modal
+            showModal(editProfileModal);
+        });
+        
+        // Edit avatar button event listener
         editAvatarBtn.addEventListener('click', function() {
             const input = document.createElement('input');
             input.type = 'file';
@@ -706,282 +1062,79 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
                 })
                 .then(() => {
-                    // Add system message for user joining
-                    return addSystemMessage(roomId, `${state.currentUserData.username} joined the room`);
-                })
-                .then(() => {
                     // Hide modal and join room
                     hideModal(joinPrivateRoomModal);
                     joinRoom(roomId);
                 })
                 .catch(error => {
-                    if (error !== 'Incorrect password' && error !== 'Room not found') {
-                        console.error('Error joining private room:', error);
-                        alert('Error joining room: ' + error.message);
+                    if (typeof error === 'string') {
+                        // Already alerted
+                        return;
                     }
+                    console.error('Error joining private room:', error);
+                    alert('Error joining private room: ' + error.message);
                 });
         });
         
-        // Room info button event listener
-        roomInfoBtn.addEventListener('click', function() {
-            showRoomInfo();
+        // Explore search event listener
+        exploreSearch.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            
+            // Search rooms
+            const roomCards = exploreRooms.querySelectorAll('.room-card');
+            roomCards.forEach(card => {
+                const roomName = card.querySelector('.room-name').textContent.toLowerCase();
+                const roomDescription = card.querySelector('.room-description').textContent.toLowerCase();
+                
+                if (roomName.includes(searchTerm) || roomDescription.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+            
+            // Search users
+            const userCards = exploreUsers.querySelectorAll('.user-card');
+            userCards.forEach(card => {
+                const username = card.querySelector('.user-card-username').textContent.toLowerCase();
+                const fullname = card.querySelector('.user-card-fullname').textContent.toLowerCase();
+                
+                if (username.includes(searchTerm) || fullname.includes(searchTerm)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
         });
         
-        // Back button event listeners
-        backBtn.addEventListener('click', function() {
-            // Unsubscribe from room messages listener
-            if (state.unsubscribeListeners.roomMessages) {
-                state.unsubscribeListeners.roomMessages();
-                delete state.unsubscribeListeners.roomMessages;
+        // Search button event listener
+        searchBtn.addEventListener('click', function() {
+            const searchTerm = exploreSearch.value.toLowerCase();
+            
+            if (!searchTerm) {
+                return;
             }
             
-            chatContainer.classList.add('hidden');
-            mainContainer.classList.remove('hidden');
-            state.currentRoom = null;
-            state.replyingTo = null;
-            replyContainer.classList.add('hidden');
-        });
-        
-        directBackBtn.addEventListener('click', function() {
-            // Unsubscribe from direct messages listener
-            if (state.unsubscribeListeners.directMessages) {
-                state.unsubscribeListeners.directMessages();
-                delete state.unsubscribeListeners.directMessages;
-            }
+            // Set active tab to rooms
+            exploreTabs.forEach(tab => {
+                if (tab.dataset.tab === 'rooms') {
+                    tab.click();
+                }
+            });
             
-            directChatContainer.classList.add('hidden');
-            mainContainer.classList.remove('hidden');
-            state.currentChat = null;
-            state.directReplyingTo = null;
-            directReplyContainer.classList.add('hidden');
-        });
-        
-        userProfileBackBtn.addEventListener('click', function() {
-            userProfileView.classList.add('hidden');
-            if (directChatContainer.classList.contains('hidden')) {
-                mainContainer.classList.remove('hidden');
-            } else {
-                directChatContainer.classList.remove('hidden');
-            }
-            state.viewingUser = null;
-        });
-        
-        // View profile button event listener
-        viewProfileBtn.addEventListener('click', function() {
-            const userId = state.currentChat;
-            viewUserProfile(userId);
-        });
-        
-        // Message input event listeners
-        messageInput.addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            } else {
-                // Show typing indicator to other users (simulated)
-                showTypingIndicator();
-            }
-        });
-        
-        directMessageInput.addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                sendDirectMessage();
-            } else {
-                // Show typing indicator to other user (simulated)
-                showDirectTypingIndicator();
-            }
-        });
-        
-        // Send button event listeners
-        sendBtn.addEventListener('click', sendMessage);
-        directSendBtn.addEventListener('click', sendDirectMessage);
-        
-        // Reply button event listeners
-        cancelReplyBtn.addEventListener('click', function() {
-            state.replyingTo = null;
-            replyContainer.classList.add('hidden');
-        });
-        
-        directCancelReplyBtn.addEventListener('click', function() {
-            state.directReplyingTo = null;
-            directReplyContainer.classList.add('hidden');
-        });
-        
-        // Emoji button event listeners
-        emojiBtn.addEventListener('click', function() {
-            emojiPicker.style.bottom = '80px';
-            emojiPicker.style.left = '50px';
-            emojiPicker.classList.toggle('hidden');
-            overlay.classList.toggle('hidden');
-        });
-        
-        directEmojiBtn.addEventListener('click', function() {
-            emojiPicker.style.bottom = '80px';
-            emojiPicker.style.left = '50px';
-            emojiPicker.classList.toggle('hidden');
-            overlay.classList.toggle('hidden');
-        });
-        
-        // Attachment button event listeners
-        attachmentBtn.addEventListener('click', function() {
-            fileMenu.classList.toggle('hidden');
-        });
-        
-        directAttachmentBtn.addEventListener('click', function() {
-            directFileMenu.classList.toggle('hidden');
-        });
-        
-        // Upload buttons event listeners
-        uploadImageBtn.addEventListener('click', function() {
-            fileInput.setAttribute('accept', 'image/*');
-            fileInput.click();
-        });
-        
-        uploadFileBtn.addEventListener('click', function() {
-            fileInput.setAttribute('accept', '.pdf,.doc,.docx,.txt');
-            fileInput.click();
-        });
-        
-        directUploadImageBtn.addEventListener('click', function() {
-            directFileInput.setAttribute('accept', 'image/*');
-            directFileInput.click();
-        });
-        
-        directUploadFileBtn.addEventListener('click', function() {
-            directFileInput.setAttribute('accept', '.pdf,.doc,.docx,.txt');
-            directFileInput.click();
-        });
-        
-        // File input event listeners
-        fileInput.addEventListener('change', function() {
-            if (this.files && this.files[0]) {
-                const file = this.files[0];
-                handleFileUpload(file);
-                fileMenu.classList.add('hidden');
-            }
-        });
-        
-        directFileInput.addEventListener('change', function() {
-            if (this.files && this.files[0]) {
-                const file = this.files[0];
-                handleDirectFileUpload(file);
-                directFileMenu.classList.add('hidden');
-            }
-        });
-        
-        // Close modal buttons event listeners
-        closeModalBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const modal = this.closest('.modal');
-                hideModal(modal);
-            });
-        });
-        
-        // Close preview button event listener
-        closePreviewBtn.addEventListener('click', function() {
-            imagePreviewModal.classList.add('hidden');
-        });
-        
-        // Overlay event listener
-        overlay.addEventListener('click', function() {
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.classList.add('hidden');
-            });
-            emojiPicker.classList.add('hidden');
-            overlay.classList.add('hidden');
-        });
-        
-        // Explore tabs event listeners
-        exploreTabs.forEach(tab => {
-            tab.addEventListener('click', function() {
-                exploreTabs.forEach(t => t.classList.remove('active'));
-                this.classList.add('active');
+            // Search rooms
+            const roomCards = exploreRooms.querySelectorAll('.room-card');
+            roomCards.forEach(card => {
+                const roomName = card.querySelector('.room-name').textContent.toLowerCase();
+                const roomDescription = card.querySelector('.room-description').textContent.toLowerCase();
                 
-                const tabName = this.dataset.tab;
-                if (tabName === 'rooms') {
-                    exploreRooms.classList.remove('hidden');
-                    exploreUsers.classList.add('hidden');
+                if (roomName.includes(searchTerm) || roomDescription.includes(searchTerm)) {
+                    card.style.display = 'block';
                 } else {
-                    exploreRooms.classList.add('hidden');
-                    exploreUsers.classList.remove('hidden');
+                    card.style.display = 'none';
                 }
             });
         });
-        
-        // Messages tabs event listeners
-        messagesTabs.forEach(tab => {
-            tab.addEventListener('click', function() {
-                messagesTabs.forEach(t => t.classList.remove('active'));
-                this.classList.add('active');
-                
-                const tabName = this.dataset.tab;
-                if (tabName === 'chats') {
-                    chatsList.classList.remove('hidden');
-                    roomsList.classList.add('hidden');
-                } else {
-                    chatsList.classList.add('hidden');
-                    roomsList.classList.remove('hidden');
-                }
-            });
-        });
-        
-        // Profile tabs event listeners
-        profileTabs.forEach(tab => {
-            tab.addEventListener('click', function() {
-                profileTabs.forEach(t => t.classList.remove('active'));
-                this.classList.add('active');
-                
-                const tabName = this.dataset.tab;
-                if (tabName === 'rooms') {
-                    profileRooms.classList.remove('hidden');
-                    profileFollowing.classList.add('hidden');
-                    profileFollowers.classList.add('hidden');
-                } else if (tabName === 'following') {
-                    profileRooms.classList.add('hidden');
-                    profileFollowing.classList.remove('hidden');
-                    profileFollowers.classList.add('hidden');
-                } else {
-                    profileRooms.classList.add('hidden');
-                    profileFollowing.classList.add('hidden');
-                    profileFollowers.classList.remove('hidden');
-                }
-            });
-        });
-    }
-    
-    // Upload profile image (avatar or cover)
-    function uploadProfileImage(file, type) {
-        // Create storage reference
-        const storageRef = storage.ref();
-        const fileRef = storageRef.child(`users/${state.currentUser}/${type}_${Date.now()}`);
-        
-        // Upload file
-        fileRef.put(file)
-            .then(snapshot => {
-                return snapshot.ref.getDownloadURL();
-            })
-            .then(downloadURL => {
-                // Update user data in Firestore
-                const updateData = {};
-                updateData[type] = downloadURL;
-                
-                return db.collection('users').doc(state.currentUser).update(updateData);
-            })
-            .then(() => {
-                // Update state and UI
-                if (type === 'avatar') {
-                    state.currentUserData.avatar = downloadURL;
-                    profileAvatarImg.src = downloadURL;
-                } else if (type === 'cover') {
-                    state.currentUserData.cover = downloadURL;
-                    // Update cover in UI if needed
-                }
-                
-                alert(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully!`);
-            })
-            .catch(error => {
-                console.error(`Error uploading ${type}:`, error);
-                alert(`Error uploading ${type}: ${error.message}`);
-            });
     }
     
     // Show auth container
@@ -1042,6 +1195,8 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load home section
     function loadHomeSection() {
+        console.log('Loading home section...');
+        
         // Update global room count from Firestore
         db.collection('rooms').doc('global').get()
             .then(doc => {
@@ -1063,6 +1218,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (doc.exists) {
                     const userData = doc.data();
                     const recentRooms = userData.recentRooms || [];
+                    
+                    console.log('User recent rooms:', recentRooms);
                     
                     // Get user's recent rooms (excluding global)
                     const userRooms = recentRooms.filter(roomId => roomId !== 'global');
@@ -1209,7 +1366,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                             lastMessage = messagesSnapshot.docs[0].data();
                                         }
                                         
-                                        return { userData, lastMessage, chatId: doc.id };
+                                        return {
+                                            chatId: doc.id,
+                                            userData,
+                                            lastMessage
+                                        };
                                     });
                             }
                             return null;
@@ -1219,18 +1380,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 return Promise.all(chatPromises);
             })
             .then(chatsData => {
-                chatsData.forEach(data => {
-                    if (data) {
-                        const chatItem = createChatListItem(data.userData, data.lastMessage, data.chatId);
-                        chatsList.appendChild(chatItem);
-                    }
+                // Filter out null values
+                chatsData = chatsData.filter(chat => chat !== null);
+                
+                // Create chat list items
+                chatsData.forEach(chat => {
+                    const chatItem = createChatListItem(chat.userData, chat.lastMessage, chat.chatId);
+                    chatsList.appendChild(chatItem);
                 });
                 
-                // Add event listeners to chat list items
+                // Add event listeners to chat items
                 chatsList.querySelectorAll('.chat-list-item').forEach(item => {
                     item.addEventListener('click', function() {
                         const userId = this.dataset.userid;
-                        startDirectChat(userId);
+                        const chatId = this.dataset.chatid;
+                        openDirectChat(userId, chatId);
                     });
                 });
             })
@@ -1238,16 +1402,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Error loading chats:', error);
             });
         
-        // Get rooms from Firestore
+        // Get user's rooms from Firestore
         db.collection('users').doc(state.currentUser).get()
             .then(doc => {
                 if (doc.exists) {
                     const userData = doc.data();
-                    const recentRooms = userData.recentRooms || [];
+                    const userRooms = userData.recentRooms || [];
                     
                     // Get room data for each room
-                    const roomPromises = recentRooms.map(roomId => {
-                        return db.collection('rooms').doc(roomId).get()
+                    const roomPromises = userRooms.map(roomId => 
+                        db.collection('rooms').doc(roomId).get()
                             .then(roomDoc => {
                                 if (roomDoc.exists) {
                                     const roomData = roomDoc.data();
@@ -1263,26 +1427,31 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 lastMessage = messagesSnapshot.docs[0].data();
                                             }
                                             
-                                            return { roomData, lastMessage };
+                                            return {
+                                                roomData,
+                                                lastMessage
+                                            };
                                         });
                                 }
                                 return null;
-                            });
-                    });
+                            })
+                    );
                     
                     return Promise.all(roomPromises);
                 }
                 return [];
             })
             .then(roomsData => {
-                roomsData.forEach(data => {
-                    if (data) {
-                        const roomItem = createRoomListItem(data.roomData, data.lastMessage);
-                        roomsList.appendChild(roomItem);
-                    }
+                // Filter out null values
+                roomsData = roomsData.filter(room => room !== null);
+                
+                // Create room list items
+                roomsData.forEach(room => {
+                    const roomItem = createRoomListItem(room.roomData, room.lastMessage);
+                    roomsList.appendChild(roomItem);
                 });
                 
-                // Add event listeners to room list items
+                // Add event listeners to room items
                 roomsList.querySelectorAll('.chat-list-item').forEach(item => {
                     item.addEventListener('click', function() {
                         const roomId = this.dataset.roomid;
@@ -1297,47 +1466,60 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load notifications section
     function loadNotificationsSection() {
-        // Clear notifications list
-        const notificationsList = document.getElementById('notifications-list');
-        notificationsList.innerHTML = '';
+        // Clear notifications container
+        notificationsSection.querySelector('.notifications-list').innerHTML = '';
         
-        // Get notifications from Firestore
+        // Get user's notifications from Firestore
         db.collection('users').doc(state.currentUser).collection('notifications')
             .orderBy('createdAt', 'desc')
             .get()
             .then(snapshot => {
                 if (snapshot.empty) {
-                    notificationsList.innerHTML = '<div class="empty-notifications">No notifications yet</div>';
+                    notificationsSection.querySelector('.notifications-list').innerHTML = '<div class="empty-state">No notifications yet</div>';
                     return;
                 }
                 
                 const notificationPromises = snapshot.docs.map(doc => {
                     const notificationData = doc.data();
+                    notificationData.id = doc.id;
                     
-                    // Get user data for notification
-                    if (notificationData.fromUserId) {
-                        return db.collection('users').doc(notificationData.fromUserId).get()
+                    // Get from user data if needed
+                    if (notificationData.fromUser) {
+                        return db.collection('users').doc(notificationData.fromUser).get()
                             .then(userDoc => {
                                 if (userDoc.exists) {
-                                    const userData = userDoc.data();
-                                    return { ...notificationData, fromUser: userData, id: doc.id };
+                                    notificationData.fromUser = userDoc.data();
                                 }
-                                return null;
+                                return notificationData;
                             });
                     }
                     
-                    return { ...notificationData, id: doc.id };
+                    return notificationData;
                 });
                 
                 return Promise.all(notificationPromises);
             })
-            .then(notificationsData => {
-                notificationsData.forEach(data => {
-                    if (data) {
-                        const notificationItem = createNotificationItem(data);
-                        notificationsList.appendChild(notificationItem);
+            .then(notifications => {
+                if (!notifications || notifications.length === 0) {
+                    return;
+                }
+                
+                // Create notification items
+                notifications.forEach(notification => {
+                    const notificationItem = createNotificationItem(notification);
+                    notificationsSection.querySelector('.notifications-list').appendChild(notificationItem);
+                });
+                
+                // Mark all notifications as read
+                const batch = db.batch();
+                notifications.forEach(notification => {
+                    if (!notification.read) {
+                        const notificationRef = db.collection('users').doc(state.currentUser).collection('notifications').doc(notification.id);
+                        batch.update(notificationRef, { read: true });
                     }
                 });
+                
+                return batch.commit();
             })
             .catch(error => {
                 console.error('Error loading notifications:', error);
@@ -1346,148 +1528,143 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load profile section
     function loadProfileSection() {
-        // Update profile information from state
+        // Set profile information
         profileUsername.textContent = state.currentUserData.username;
         profileFullname.textContent = state.currentUserData.fullname;
         profileBio.textContent = state.currentUserData.bio;
         profileAvatarImg.src = state.currentUserData.avatar;
         
-        // Get updated user data from Firestore
-        db.collection('users').doc(state.currentUser).get()
-            .then(doc => {
-                if (doc.exists) {
-                    const userData = doc.data();
-                    
-                    // Update stats
-                    followingCount.textContent = userData.following ? userData.following.length : 0;
-                    followersCount.textContent = userData.followers ? userData.followers.length : 0;
-                    roomsCount.textContent = userData.rooms ? userData.rooms.length : 0;
-                    
-                    // Clear profile content containers
-                    profileRooms.innerHTML = '';
-                    profileFollowing.innerHTML = '';
-                    profileFollowers.innerHTML = '';
-                    
-                    // Get rooms data
-                    const roomPromises = (userData.rooms || []).map(roomId => 
-                        db.collection('rooms').doc(roomId).get()
-                    );
-                    
-                    // Get following users data
-                    const followingPromises = (userData.following || []).map(userId => 
-                        db.collection('users').doc(userId).get()
-                    );
-                    
-                    // Get followers data
-                    const followerPromises = (userData.followers || []).map(userId => 
-                        db.collection('users').doc(userId).get()
-                    );
-                    
-                    // Process rooms
-                    Promise.all(roomPromises)
-                        .then(roomDocs => {
-                            roomDocs.forEach(doc => {
-                                if (doc.exists) {
-                                    const roomData = doc.data();
-                                    const roomCard = createRoomCard(roomData);
-                                    profileRooms.appendChild(roomCard);
-                                }
-                            });
-                            
-                            // Add event listeners to join room buttons
-                            profileRooms.querySelectorAll('.join-room-btn').forEach(btn => {
-                                btn.addEventListener('click', function() {
-                                    const roomId = this.dataset.room;
-                                    joinRoom(roomId);
-                                });
-                            });
-                        })
-                        .catch(error => {
-                            console.error('Error loading rooms:', error);
-                        });
-                    
-                    // Process following users
-                    Promise.all(followingPromises)
-                        .then(userDocs => {
-                            userDocs.forEach(doc => {
-                                if (doc.exists) {
-                                    const userData = doc.data();
-                                    const userCard = createUserCard(userData);
-                                    profileFollowing.appendChild(userCard);
-                                }
-                            });
-                            
-                            // Add event listeners
-                            addUserCardEventListeners(profileFollowing);
-                        })
-                        .catch(error => {
-                            console.error('Error loading following users:', error);
-                        });
-                    
-                    // Process followers
-                    Promise.all(followerPromises)
-                        .then(userDocs => {
-                            userDocs.forEach(doc => {
-                                if (doc.exists) {
-                                    const userData = doc.data();
-                                    const userCard = createUserCard(userData);
-                                    profileFollowers.appendChild(userCard);
-                                }
-                            });
-                            
-                            // Add event listeners
-                            addUserCardEventListeners(profileFollowers);
-                        })
-                        .catch(error => {
-                            console.error('Error loading followers:', error);
-                        });
-                }
+        // Set counts
+        followingCount.textContent = state.currentUserData.following ? state.currentUserData.following.length : 0;
+        followersCount.textContent = state.currentUserData.followers ? state.currentUserData.followers.length : 0;
+        roomsCount.textContent = state.currentUserData.rooms ? state.currentUserData.rooms.length : 0;
+        
+        // Clear profile containers
+        profileRooms.innerHTML = '';
+        profileFollowing.innerHTML = '';
+        profileFollowers.innerHTML = '';
+        
+        // Get user's rooms from Firestore
+        const roomPromises = (state.currentUserData.rooms || []).map(roomId => 
+            db.collection('rooms').doc(roomId).get()
+        );
+        
+        Promise.all(roomPromises)
+            .then(roomDocs => {
+                roomDocs.forEach(doc => {
+                    if (doc.exists) {
+                        const roomData = doc.data();
+                        const roomCard = createRoomCard(roomData);
+                        profileRooms.appendChild(roomCard);
+                    }
+                });
+                
+                // Add event listeners to join room buttons
+                profileRooms.querySelectorAll('.join-room-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const roomId = this.dataset.room;
+                        joinRoom(roomId);
+                    });
+                });
             })
             .catch(error => {
-                console.error('Error loading profile:', error);
+                console.error('Error loading user rooms:', error);
             });
-    }
-    
-    // Add event listeners to user cards
-    function addUserCardEventListeners(container) {
-        // Add event listeners to follow buttons
-        container.querySelectorAll('.follow-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const userId = this.dataset.userid;
-                toggleFollow(userId);
-                updateFollowButton(this, userId);
-            });
-        });
         
-        // Add event listeners to message buttons
-        container.querySelectorAll('.message-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const userId = this.dataset.userid;
-                startDirectChat(userId);
+        // Get user's following from Firestore
+        const followingPromises = (state.currentUserData.following || []).map(userId => 
+            db.collection('users').doc(userId).get()
+        );
+        
+        Promise.all(followingPromises)
+            .then(userDocs => {
+                userDocs.forEach(doc => {
+                    if (doc.exists) {
+                        const userData = doc.data();
+                        const userCard = createUserCard(userData);
+                        profileFollowing.appendChild(userCard);
+                    }
+                });
+                
+                // Add event listeners to follow buttons
+                profileFollowing.querySelectorAll('.follow-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userid;
+                        toggleFollow(userId);
+                        updateFollowButton(this, userId);
+                    });
+                });
+                
+                // Add event listeners to message buttons
+                profileFollowing.querySelectorAll('.message-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userid;
+                        startDirectChat(userId);
+                    });
+                });
+            })
+            .catch(error => {
+                console.error('Error loading following users:', error);
             });
-        });
+        
+        // Get user's followers from Firestore
+        const followerPromises = (state.currentUserData.followers || []).map(userId => 
+            db.collection('users').doc(userId).get()
+        );
+        
+        Promise.all(followerPromises)
+            .then(userDocs => {
+                userDocs.forEach(doc => {
+                    if (doc.exists) {
+                        const userData = doc.data();
+                        const userCard = createUserCard(userData);
+                        profileFollowers.appendChild(userCard);
+                    }
+                });
+                
+                // Add event listeners to follow buttons
+                profileFollowers.querySelectorAll('.follow-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userid;
+                        toggleFollow(userId);
+                        updateFollowButton(this, userId);
+                    });
+                });
+                
+                // Add event listeners to message buttons
+                profileFollowers.querySelectorAll('.message-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const userId = this.dataset.userid;
+                        startDirectChat(userId);
+                    });
+                });
+            })
+            .catch(error => {
+                console.error('Error loading follower users:', error);
+            });
     }
     
     // View user profile
     function viewUserProfile(userId) {
+        // Get user data from Firestore
         db.collection('users').doc(userId).get()
             .then(doc => {
                 if (doc.exists) {
                     const userData = doc.data();
-                    state.viewingUser = userId;
+                    state.viewingUser = userData;
                     
-                    // Update profile information
+                    // Set user information
+                    userAvatarImg.src = userData.avatar;
                     userProfileUsername.textContent = userData.username;
                     userProfileFullname.textContent = userData.fullname;
                     userProfileBio.textContent = userData.bio;
-                    userAvatarImg.src = userData.avatar;
                     
-                    // Update stats
+                    // Set counts
                     userFollowingCount.textContent = userData.following ? userData.following.length : 0;
                     userFollowersCount.textContent = userData.followers ? userData.followers.length : 0;
                     userRoomsCount.textContent = userData.rooms ? userData.rooms.length : 0;
                     
-                    // Update follow button
+                    // Set follow button state
                     if (state.currentUserData.following && state.currentUserData.following.includes(userId)) {
                         followUserBtn.textContent = 'Following';
                         followUserBtn.classList.add('following');
@@ -1496,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         followUserBtn.classList.remove('following');
                     }
                     
-                    // Set user ID for follow and message buttons
+                    // Set message button data
                     followUserBtn.dataset.userid = userId;
                     messageUserBtn.dataset.userid = userId;
                     
@@ -1705,8 +1882,6 @@ document.addEventListener('DOMContentLoaded', function() {
             actionBtn.dataset.roomid = notification.roomId;
             actionBtn.addEventListener('click', function() {
                 joinRoom(notification.roomId);
-                this.textContent = 'Joined';
-                this.disabled = true;
                 
                 // Mark notification as read
                 db.collection('users').doc(state.currentUser).collection('notifications').doc(notification.id).update({
@@ -1715,505 +1890,386 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         
-        notificationItem.querySelector('.notification-time').textContent = formatTime(notification.createdAt.toDate());
-        
-        if (!notification.read) {
-            notificationItem.classList.add('unread');
+        // Set read status
+        if (notification.read) {
+            notificationItem.classList.add('read');
         }
+        
+        // Set time
+        notificationItem.querySelector('.notification-time').textContent = formatTime(notification.createdAt.toDate());
         
         return notificationItem;
     }
     
-    // Toggle follow
-    function toggleFollow(userId) {
-        // Check if already following
-        const isFollowing = state.currentUserData.following && state.currentUserData.following.includes(userId);
+    // Create message element
+    function createMessageElement(message, isDirectChat = false) {
+        const template = document.importNode(messageTemplate.content, true);
+        const messageElement = template.querySelector('.message');
         
-        if (isFollowing) {
-            // Unfollow user
-            db.collection('users').doc(state.currentUser).update({
-                following: firebase.firestore.FieldValue.arrayRemove(userId)
-            });
-            
-            db.collection('users').doc(userId).update({
-                followers: firebase.firestore.FieldValue.arrayRemove(state.currentUser)
-            });
-            
-            // Update state
-            if (state.currentUserData.following) {
-                state.currentUserData.following = state.currentUserData.following.filter(id => id !== userId);
-            }
-        } else {
-            // Follow user
-            db.collection('users').doc(state.currentUser).update({
-                following: firebase.firestore.FieldValue.arrayUnion(userId)
-            });
-            
-            db.collection('users').doc(userId).update({
-                followers: firebase.firestore.FieldValue.arrayUnion(state.currentUser)
-            });
-            
-            // Add notification for the target user
-            db.collection('users').doc(userId).collection('notifications').add({
-                type: 'follow',
-                fromUserId: state.currentUser,
-                read: false,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            
-            // Update state
-            if (!state.currentUserData.following) {
-                state.currentUserData.following = [];
-            }
-            state.currentUserData.following.push(userId);
+        // Set message ID
+        messageElement.dataset.id = message.id;
+        
+        // Set message type
+        if (message.type === 'system') {
+            messageElement.classList.add('system-message');
+            messageElement.innerHTML = `<div class="message-text">${message.text}</div>`;
+            return messageElement;
         }
+        
+        // Set message sender
+        const isSelf = message.sender === state.currentUser;
+        if (isSelf) {
+            messageElement.classList.add('self');
+        }
+        
+        // Set message avatar
+        const avatarImg = messageElement.querySelector('.message-avatar img');
+        avatarImg.src = message.senderAvatar;
+        avatarImg.alt = message.senderName;
+        
+        // Set message content
+        messageElement.querySelector('.message-sender').textContent = isSelf ? 'You' : message.senderName;
+        messageElement.querySelector('.message-text').textContent = message.text;
+        messageElement.querySelector('.message-time').textContent = formatTime(message.createdAt.toDate());
+        
+        // Set reply if exists
+        if (message.replyTo) {
+            const replyElement = document.createElement('div');
+            replyElement.classList.add('message-reply');
+            replyElement.innerHTML = `
+                <div class="reply-sender">${message.replyToSenderName}</div>
+                <div class="reply-text">${message.replyToText}</div>
+            `;
+            messageElement.querySelector('.message-content').insertBefore(replyElement, messageElement.querySelector('.message-text'));
+        }
+        
+        // Set image if exists
+        if (message.image) {
+            const imageElement = document.createElement('div');
+            imageElement.classList.add('message-image');
+            imageElement.innerHTML = `<img src="${message.image}" alt="Image">`;
+            messageElement.querySelector('.message-content').appendChild(imageElement);
+            
+            // Add click event to show image preview
+            imageElement.querySelector('img').addEventListener('click', function() {
+                previewImage.src = message.image;
+                imagePreviewModal.classList.remove('hidden');
+            });
+        }
+        
+        // Set file if exists
+        if (message.file) {
+            const fileElement = document.createElement('div');
+            fileElement.classList.add('message-file');
+            fileElement.innerHTML = `
+                <a href="${message.file}" target="_blank" class="file-link">
+                    <i class="fas fa-file"></i>
+                    <span>${message.fileName}</span>
+                </a>
+            `;
+            messageElement.querySelector('.message-content').appendChild(fileElement);
+        }
+        
+        // Add reply button event listener
+        messageElement.querySelector('.reply-btn').addEventListener('click', function() {
+            if (isDirectChat) {
+                state.directReplyingTo = {
+                    id: message.id,
+                    text: message.text,
+                    sender: message.sender,
+                    senderName: message.senderName
+                };
+                directReplyText.textContent = message.text;
+                directReplyContainer.classList.remove('hidden');
+                directMessageInput.focus();
+            } else {
+                state.replyingTo = {
+                    id: message.id,
+                    text: message.text,
+                    sender: message.sender,
+                    senderName: message.senderName
+                };
+                replyText.textContent = message.text;
+                replyContainer.classList.remove('hidden');
+                messageInput.focus();
+            }
+        });
+        
+        // Add avatar click event listener
+        avatarImg.addEventListener('click', function() {
+            if (message.sender !== state.currentUser) {
+                viewUserProfile(message.sender);
+            }
+        });
+        
+        return messageElement;
     }
     
-    // Update follow button
-    function updateFollowButton(button, userId) {
-        const isFollowing = state.currentUserData.following && state.currentUserData.following.includes(userId);
-        
-        if (isFollowing) {
-            button.textContent = 'Following';
-            button.classList.add('following');
-        } else {
-            button.textContent = 'Follow';
-            button.classList.remove('following');
-        }
-    }
-    
-    // Join a room
+    // Join room
     function joinRoom(roomId) {
-        // Check if room exists
+        console.log('Joining room:', roomId);
+        
+        // Set current room
+        state.currentRoom = roomId;
+        
+        // Get room data from Firestore
         db.collection('rooms').doc(roomId).get()
             .then(doc => {
-                if (!doc.exists) {
-                    alert('Room not found');
-                    return Promise.reject('Room not found');
-                }
-                
-                // Set current room
-                state.currentRoom = roomId;
-                
-                // Add user to room members if not already there
-                const roomData = doc.data();
-                if (!roomData.members || !roomData.members.includes(state.currentUser)) {
-                    return db.collection('rooms').doc(roomId).update({
-                        members: firebase.firestore.FieldValue.arrayUnion(state.currentUser)
+                if (doc.exists) {
+                    const roomData = doc.data();
+                    
+                    // Set room information
+                    currentRoomName.textContent = roomData.name;
+                    roomMembersCount.textContent = roomData.members ? roomData.members.length : 0;
+                    
+                    // Add user to room members if not already a member
+                    if (!roomData.members || !roomData.members.includes(state.currentUser)) {
+                        console.log('Adding user to room members...');
+                        db.collection('rooms').doc(roomId).update({
+                            members: firebase.firestore.FieldValue.arrayUnion(state.currentUser)
+                        });
+                        
+                        // Add system message
+                        db.collection('rooms').doc(roomId).collection('messages').add({
+                            type: 'system',
+                            text: `${state.currentUserData.username} joined the room`,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                    
+                    // Add room to user's recent rooms
+                    db.collection('users').doc(state.currentUser).update({
+                        recentRooms: firebase.firestore.FieldValue.arrayUnion(roomId)
                     });
+                    
+                    // Clear chat messages
+                    chatMessages.innerHTML = '';
+                    
+                    // Show chat container
+                    mainContainer.classList.add('hidden');
+                    chatContainer.classList.remove('hidden');
+                    
+                    // Listen for room messages
+                    if (state.unsubscribeListeners.roomMessages) {
+                        state.unsubscribeListeners.roomMessages();
+                    }
+                    
+                    state.unsubscribeListeners.roomMessages = db.collection('rooms').doc(roomId).collection('messages')
+                        .orderBy('createdAt')
+                        .onSnapshot(snapshot => {
+                            console.log('Room messages snapshot received:', snapshot.docs.length, 'messages');
+                            
+                            // Get new messages
+                            const changes = snapshot.docChanges();
+                            
+                            changes.forEach(change => {
+                                if (change.type === 'added') {
+                                    const message = change.doc.data();
+                                    message.id = change.doc.id;
+                                    
+                                    // Create message element
+                                    const messageElement = createMessageElement(message);
+                                    chatMessages.appendChild(messageElement);
+                                }
+                            });
+                            
+                            // Scroll to bottom
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+                        }, error => {
+                            console.error('Error listening for room messages:', error);
+                        });
+                    
+                    // Listen for typing indicators
+                    if (state.unsubscribeListeners.roomTyping) {
+                        state.unsubscribeListeners.roomTyping();
+                    }
+                    
+                    state.unsubscribeListeners.roomTyping = db.collection('rooms').doc(roomId).collection('typing')
+                        .onSnapshot(snapshot => {
+                            // Get typing users
+                            const typingUsers = snapshot.docs
+                                .filter(doc => doc.id !== state.currentUser)
+                                .map(doc => doc.data().username);
+                            
+                            // Update typing indicator
+                            if (typingUsers.length > 0) {
+                                typingIndicator.textContent = typingUsers.join(', ') + ' is typing...';
+                                typingIndicator.classList.remove('hidden');
+                            } else {
+                                typingIndicator.classList.add('hidden');
+                            }
+                        }, error => {
+                            console.error('Error listening for typing indicators:', error);
+                        });
+                    
+                    // Focus message input
+                    messageInput.focus();
                 }
-                
-                return Promise.resolve();
-            })
-            .then(() => {
-                // Add room to user's recent rooms
-                return db.collection('users').doc(state.currentUser).update({
-                    recentRooms: firebase.firestore.FieldValue.arrayUnion(roomId)
-                });
-            })
-            .then(() => {
-                // Update UI
-                currentRoomName.textContent = roomId === 'global' ? 'Global Room' : roomId.replace(/_/g, ' ');
-                updateMembersCount();
-                
-                // Load messages
-                loadMessages();
-                
-                // Show chat container
-                mainContainer.classList.add('hidden');
-                chatContainer.classList.remove('hidden');
-                
-                // Focus on message input
-                messageInput.focus();
             })
             .catch(error => {
-                if (error !== 'Room not found') {
-                    console.error('Error joining room:', error);
-                    alert('Error joining room: ' + error.message);
-                }
+                console.error('Error joining room:', error);
+                alert('Error joining room: ' + error.message);
             });
     }
     
     // Start direct chat
     function startDirectChat(userId) {
-        // Check if user exists
+        // Get chat ID (sorted user IDs)
+        const users = [state.currentUser, userId].sort();
+        const chatId = users.join('_');
+        
+        // Open direct chat
+        openDirectChat(userId, chatId);
+    }
+    
+    // Open direct chat
+    function openDirectChat(userId, chatId) {
+        // Set current chat
+        state.currentChat = chatId;
+        
+        // Get user data from Firestore
         db.collection('users').doc(userId).get()
             .then(doc => {
-                if (!doc.exists) {
-                    alert('User not found');
-                    return Promise.reject('User not found');
-                }
-                
-                // Set current chat
-                state.currentChat = userId;
-                
-                // Create chat ID (sorted userIds to ensure consistency)
-                const participants = [state.currentUser, userId].sort();
-                const chatId = participants.join('_');
-                
-                // Check if chat exists, if not create it
-                return db.collection('chats').doc(chatId).get()
-                    .then(chatDoc => {
-                        if (!chatDoc.exists) {
-                            return db.collection('chats').doc(chatId).set({
-                                id: chatId,
-                                participants: participants,
-                                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                if (doc.exists) {
+                    const userData = doc.data();
+                    
+                    // Set user information
+                    chatUserAvatar.src = userData.avatar;
+                    chatUserName.textContent = userData.username;
+                    
+                    // Check if chat exists
+                    return db.collection('chats').doc(chatId).get()
+                        .then(chatDoc => {
+                            if (!chatDoc.exists) {
+                                // Create chat document
+                                return db.collection('chats').doc(chatId).set({
+                                    participants: [state.currentUser, userId],
+                                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                                });
+                            }
+                        })
+                        .then(() => {
+                            // Clear direct chat messages
+                            directChatMessages.innerHTML = '';
+                            
+                            // Show direct chat container
+                            mainContainer.classList.add('hidden');
+                            directChatContainer.classList.remove('hidden');
+                            
+                            // Listen for direct messages
+                            if (state.unsubscribeListeners.directMessages) {
+                                state.unsubscribeListeners.directMessages();
+                            }
+                            
+                            state.unsubscribeListeners.directMessages = db.collection('chats').doc(chatId).collection('messages')
+                                .orderBy('createdAt')
+                                .onSnapshot(snapshot => {
+                                    // Get new messages
+                                    const changes = snapshot.docChanges();
+                                    
+                                    changes.forEach(change => {
+                                        if (change.type === 'added') {
+                                            const message = change.doc.data();
+                                            message.id = change.doc.id;
+                                            
+                                            // Create message element
+                                            const messageElement = createMessageElement(message, true);
+                                            directChatMessages.appendChild(messageElement);
+                                        }
+                                    });
+                                    
+                                    // Scroll to bottom
+                                    directChatMessages.scrollTop = directChatMessages.scrollHeight;
+                                }, error => {
+                                    console.error('Error listening for direct messages:', error);
+                                });
+                            
+                            // Listen for typing indicators
+                            if (state.unsubscribeListeners.directTyping) {
+                                state.unsubscribeListeners.directTyping();
+                            }
+                            
+                            state.unsubscribeListeners.directTyping = db.collection('chats').doc(chatId).collection('typing')
+                                .onSnapshot(snapshot => {
+                                    // Get typing users
+                                    const typingUsers = snapshot.docs
+                                        .filter(doc => doc.id !== state.currentUser)
+                                        .map(doc => doc.data().username);
+                                    
+                                    // Update typing indicator
+                                    if (typingUsers.length > 0) {
+                                        directTypingIndicator.textContent = typingUsers.join(', ') + ' is typing...';
+                                        directTypingIndicator.classList.remove('hidden');
+                                    } else {
+                                        directTypingIndicator.classList.add('hidden');
+                                    }
+                                }, error => {
+                                    console.error('Error listening for typing indicators:', error);
+                                });
+                            
+                            // Set view profile button data
+                            viewProfileBtn.dataset.userid = userId;
+                            
+                            // Add event listener to view profile button
+                            viewProfileBtn.addEventListener('click', function() {
+                                viewUserProfile(userId);
                             });
-                        }
-                        return Promise.resolve();
-                    })
-                    .then(() => {
-                        // Get user data
-                        const userData = doc.data();
-                        
-                        // Update UI
-                        chatUserAvatar.src = userData.avatar;
-                        chatUserName.textContent = userData.username;
-                        chatUserStatus.textContent = 'Online'; // Simulated status
-                        chatUserStatus.classList.add('online');
-                        
-                        // Load direct messages
-                        loadDirectMessages(chatId);
-                        
-                        // Show direct chat container
-                        mainContainer.classList.add('hidden');
-                        directChatContainer.classList.remove('hidden');
-                        
-                        // Focus on message input
-                        directMessageInput.focus();
-                    });
+                            
+                            // Focus message input
+                            directMessageInput.focus();
+                        });
+                }
             })
             .catch(error => {
-                if (error !== 'User not found') {
-                    console.error('Error starting direct chat:', error);
-                    alert('Error starting chat: ' + error.message);
-                }
+                console.error('Error opening direct chat:', error);
+                alert('Error opening direct chat: ' + error.message);
             });
-    }
-    
-    // Load messages for current room
-    function loadMessages() {
-        chatMessages.innerHTML = '';
-        
-        // Show loading indicator
-        const loadingMessage = document.createElement('div');
-        loadingMessage.classList.add('loading-messages');
-        loadingMessage.textContent = 'Loading messages...';
-        loadingMessage.style.textAlign = 'center';
-        loadingMessage.style.color = 'var(--text-secondary)';
-        loadingMessage.style.padding = '20px';
-        chatMessages.appendChild(loadingMessage);
-        
-        // Set up real-time listener for messages
-        const messagesRef = db.collection('rooms').doc(state.currentRoom).collection('messages')
-            .orderBy('createdAt', 'asc');
-        
-        // Store the unsubscribe function
-        state.unsubscribeListeners.roomMessages = messagesRef.onSnapshot(snapshot => {
-            // Remove loading indicator
-            chatMessages.innerHTML = '';
-            
-            if (snapshot.empty) {
-                const emptyMessage = document.createElement('div');
-                emptyMessage.classList.add('empty-messages');
-                emptyMessage.textContent = 'No messages yet. Be the first to send a message!';
-                emptyMessage.style.textAlign = 'center';
-                emptyMessage.style.color = 'var(--text-secondary)';
-                emptyMessage.style.padding = '20px';
-                chatMessages.appendChild(emptyMessage);
-                return;
-            }
-            
-            snapshot.forEach(doc => {
-                const messageData = doc.data();
-                
-                if (messageData.type === 'system') {
-                    const systemMessage = document.createElement('div');
-                    systemMessage.classList.add('system-message');
-                    systemMessage.textContent = messageData.text;
-                    systemMessage.style.textAlign = 'center';
-                    systemMessage.style.color = 'var(--text-secondary)';
-                    systemMessage.style.padding = '5px 0';
-                    systemMessage.style.fontSize = '12px';
-                    chatMessages.appendChild(systemMessage);
-                } else {
-                    addMessageToUI(messageData, doc.id);
-                }
-            });
-            
-            // Scroll to bottom
-            scrollToBottom(chatMessages);
-        }, error => {
-            console.error('Error getting messages:', error);
-            chatMessages.innerHTML = '<div class="error-messages">Error loading messages</div>';
-        });
-    }
-    
-    // Load direct messages for current chat
-    function loadDirectMessages(chatId) {
-        directChatMessages.innerHTML = '';
-        
-        // Show loading indicator
-        const loadingMessage = document.createElement('div');
-        loadingMessage.classList.add('loading-messages');
-        loadingMessage.textContent = 'Loading messages...';
-        loadingMessage.style.textAlign = 'center';
-        loadingMessage.style.color = 'var(--text-secondary)';
-        loadingMessage.style.padding = '20px';
-        directChatMessages.appendChild(loadingMessage);
-        
-        // Create chat ID (sorted userIds to ensure consistency)
-        const participants = [state.currentUser, state.currentChat].sort();
-        chatId = chatId || participants.join('_');
-        
-        // Set up real-time listener for messages
-        const messagesRef = db.collection('chats').doc(chatId).collection('messages')
-            .orderBy('createdAt', 'asc');
-        
-        // Store the unsubscribe function
-        state.unsubscribeListeners.directMessages = messagesRef.onSnapshot(snapshot => {
-            // Remove loading indicator
-            directChatMessages.innerHTML = '';
-            
-            if (snapshot.empty) {
-                const emptyMessage = document.createElement('div');
-                emptyMessage.classList.add('empty-messages');
-                emptyMessage.textContent = 'No messages yet. Start a conversation!';
-                emptyMessage.style.textAlign = 'center';
-                emptyMessage.style.color = 'var(--text-secondary)';
-                emptyMessage.style.padding = '20px';
-                directChatMessages.appendChild(emptyMessage);
-                return;
-            }
-            
-            snapshot.forEach(doc => {
-                const messageData = doc.data();
-                addDirectMessageToUI(messageData, doc.id);
-            });
-            
-            // Scroll to bottom
-            scrollToBottom(directChatMessages);
-        }, error => {
-            console.error('Error getting direct messages:', error);
-            directChatMessages.innerHTML = '<div class="error-messages">Error loading messages</div>';
-        });
-    }
-    
-    // Add message to UI
-    function addMessageToUI(message, messageId) {
-        // Clone message template
-        const messageNode = document.importNode(messageTemplate.content, true);
-        const messageElement = messageNode.querySelector('.message');
-        messageElement.dataset.id = messageId;
-        
-        // Set message content
-        const messageAvatar = messageNode.querySelector('.message-avatar img');
-        const messageSender = messageNode.querySelector('.message-sender');
-        const messageBody = messageNode.querySelector('.message-body');
-        const messageTime = messageNode.querySelector('.message-time');
-        const repliedMessage = messageNode.querySelector('.replied-message');
-        const repliedContent = messageNode.querySelector('.replied-content');
-        const messageMedia = messageNode.querySelector('.message-media');
-        const messageImage = messageNode.querySelector('.message-image');
-        const fileAttachment = messageNode.querySelector('.file-attachment');
-        const fileName = messageNode.querySelector('.file-name');
-        const downloadBtn = messageNode.querySelector('.download-btn');
-        
-        // Set avatar and sender name
-        if (message.senderAvatar) {
-            messageAvatar.src = message.senderAvatar;
-        }
-        messageSender.textContent = message.senderName;
-        
-        // Set message content
-        messageBody.textContent = message.text;
-        
-        // Set time
-        if (message.createdAt) {
-            messageTime.textContent = formatTime(message.createdAt.toDate());
-        } else {
-            messageTime.textContent = 'Just now';
-        }
-        
-        // Check if it's a reply
-        if (message.replyTo) {
-            repliedMessage.classList.remove('hidden');
-            repliedContent.textContent = message.replyTo.text;
-        }
-        
-        // Check if it has media
-        if (message.media) {
-            messageMedia.classList.remove('hidden');
-            
-            if (message.media.type === 'image') {
-                messageImage.classList.remove('hidden');
-                messageImage.src = message.media.url;
-                
-                // Add click event to show image preview
-                messageImage.addEventListener('click', function() {
-                    previewImage.src = message.media.url;
-                    imagePreviewModal.classList.remove('hidden');
-                });
-            } else {
-                fileAttachment.classList.remove('hidden');
-                fileName.textContent = message.media.name;
-                downloadBtn.href = message.media.url;
-            }
-        }
-        
-        // Check if it's the current user's message
-        if (message.senderId === state.currentUser) {
-            messageElement.classList.add('outgoing');
-        }
-        
-        // Add reply functionality
-        const replyBtn = messageNode.querySelector('.reply-btn');
-        replyBtn.addEventListener('click', function() {
-            state.replyingTo = {
-                id: messageId,
-                text: message.text,
-                senderId: message.senderId,
-                senderName: message.senderName
-            };
-            replyText.textContent = message.text;
-            replyContainer.classList.remove('hidden');
-            messageInput.focus();
-        });
-        
-        // Add message to chat
-        chatMessages.appendChild(messageNode);
-    }
-    
-    // Add direct message to UI
-    function addDirectMessageToUI(message, messageId) {
-        // Clone message template
-        const messageNode = document.importNode(messageTemplate.content, true);
-        const messageElement = messageNode.querySelector('.message');
-        messageElement.dataset.id = messageId;
-        
-        // Set message content
-        const messageAvatar = messageNode.querySelector('.message-avatar img');
-        const messageSender = messageNode.querySelector('.message-sender');
-        const messageBody = messageNode.querySelector('.message-body');
-        const messageTime = messageNode.querySelector('.message-time');
-        const repliedMessage = messageNode.querySelector('.replied-message');
-        const repliedContent = messageNode.querySelector('.replied-content');
-        const messageMedia = messageNode.querySelector('.message-media');
-        const messageImage = messageNode.querySelector('.message-image');
-        const fileAttachment = messageNode.querySelector('.file-attachment');
-        const fileName = messageNode.querySelector('.file-name');
-        const downloadBtn = messageNode.querySelector('.download-btn');
-        
-        // Set avatar and sender name
-        if (message.senderAvatar) {
-            messageAvatar.src = message.senderAvatar;
-        }
-        messageSender.textContent = message.senderName;
-        
-        // Set message content
-        messageBody.textContent = message.text;
-        
-        // Set time
-        if (message.createdAt) {
-            messageTime.textContent = formatTime(message.createdAt.toDate());
-        } else {
-            messageTime.textContent = 'Just now';
-        }
-        
-        // Check if it's a reply
-        if (message.replyTo) {
-            repliedMessage.classList.remove('hidden');
-            repliedContent.textContent = message.replyTo.text;
-        }
-        
-        // Check if it has media
-        if (message.media) {
-            messageMedia.classList.remove('hidden');
-            
-            if (message.media.type === 'image') {
-                messageImage.classList.remove('hidden');
-                messageImage.src = message.media.url;
-                
-                // Add click event to show image preview
-                messageImage.addEventListener('click', function() {
-                    previewImage.src = message.media.url;
-                    imagePreviewModal.classList.remove('hidden');
-                });
-            } else {
-                fileAttachment.classList.remove('hidden');
-                fileName.textContent = message.media.name;
-                downloadBtn.href = message.media.url;
-            }
-        }
-        
-        // Check if it's the current user's message
-        if (message.senderId === state.currentUser) {
-            messageElement.classList.add('outgoing');
-        }
-        
-        // Add reply functionality
-        const replyBtn = messageNode.querySelector('.reply-btn');
-        replyBtn.addEventListener('click', function() {
-            state.directReplyingTo = {
-                id: messageId,
-                text: message.text,
-                senderId: message.senderId,
-                senderName: message.senderName
-            };
-            directReplyText.textContent = message.text;
-            directReplyContainer.classList.remove('hidden');
-            directMessageInput.focus();
-        });
-        
-        // Add message to chat
-        directChatMessages.appendChild(messageNode);
     }
     
     // Send message
     function sendMessage() {
         const text = messageInput.value.trim();
-        if (!text) return;
+        
+        if (!text) {
+            return;
+        }
         
         // Create message object
         const message = {
-            senderId: state.currentUser,
+            type: 'text',
+            text: text,
+            sender: state.currentUser,
             senderName: state.currentUserData.username,
             senderAvatar: state.currentUserData.avatar,
-            text: text,
-            type: 'user',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
-        // Check if it's a reply
+        // Add reply information if replying
         if (state.replyingTo) {
-            message.replyTo = {
-                id: state.replyingTo.id,
-                text: state.replyingTo.text,
-                senderId: state.replyingTo.senderId,
-                senderName: state.replyingTo.senderName
-            };
-            
-            // Reset reply state
-            state.replyingTo = null;
-            replyContainer.classList.add('hidden');
+            message.replyTo = state.replyingTo.id;
+            message.replyToText = state.replyingTo.text;
+            message.replyToSender = state.replyingTo.sender;
+            message.replyToSenderName = state.replyingTo.senderName;
         }
         
         // Add message to Firestore
         db.collection('rooms').doc(state.currentRoom).collection('messages').add(message)
             .then(() => {
-                // Clear input
+                // Clear message input
                 messageInput.value = '';
                 
-                // Clear typing indicator
-                clearTimeout(state.typingTimeout);
-                typingIndicator.classList.add('hidden');
+                // Clear reply
+                state.replyingTo = null;
+                replyContainer.classList.add('hidden');
                 
                 // Update room's updatedAt timestamp
-                return db.collection('rooms').doc(state.currentRoom).update({
+                db.collection('rooms').doc(state.currentRoom).update({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
+                
+                // Clear typing status
+                db.collection('rooms').doc(state.currentRoom).collection('typing').doc(state.currentUser).delete();
             })
             .catch(error => {
                 console.error('Error sending message:', error);
@@ -2224,179 +2280,50 @@ document.addEventListener('DOMContentLoaded', function() {
     // Send direct message
     function sendDirectMessage() {
         const text = directMessageInput.value.trim();
-        if (!text) return;
         
-        // Create chat ID (sorted userIds to ensure consistency)
-        const participants = [state.currentUser, state.currentChat].sort();
-        const chatId = participants.join('_');
+        if (!text) {
+            return;
+        }
         
         // Create message object
         const message = {
-            senderId: state.currentUser,
+            type: 'text',
+            text: text,
+            sender: state.currentUser,
             senderName: state.currentUserData.username,
             senderAvatar: state.currentUserData.avatar,
-            text: text,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
         
-        // Check if it's a reply
+        // Add reply information if replying
         if (state.directReplyingTo) {
-            message.replyTo = {
-                id: state.directReplyingTo.id,
-                text: state.directReplyingTo.text,
-                senderId: state.directReplyingTo.senderId,
-                senderName: state.directReplyingTo.senderName
-            };
-            
-            // Reset reply state
-            state.directReplyingTo = null;
-            directReplyContainer.classList.add('hidden');
+            message.replyTo = state.directReplyingTo.id;
+            message.replyToText = state.directReplyingTo.text;
+            message.replyToSender = state.directReplyingTo.sender;
+            message.replyToSenderName = state.directReplyingTo.senderName;
         }
         
         // Add message to Firestore
-        db.collection('chats').doc(chatId).collection('messages').add(message)
+        db.collection('chats').doc(state.currentChat).collection('messages').add(message)
             .then(() => {
-                // Clear input
+                // Clear message input
                 directMessageInput.value = '';
                 
-                // Clear typing indicator
-                clearTimeout(state.directTypingTimeout);
-                directTypingIndicator.classList.add('hidden');
+                // Clear reply
+                state.directReplyingTo = null;
+                directReplyContainer.classList.add('hidden');
                 
                 // Update chat's updatedAt timestamp
-                return db.collection('chats').doc(chatId).update({
+                db.collection('chats').doc(state.currentChat).update({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
+                
+                // Clear typing status
+                db.collection('chats').doc(state.currentChat).collection('typing').doc(state.currentUser).delete();
             })
             .catch(error => {
                 console.error('Error sending direct message:', error);
-                alert('Error sending message: ' + error.message);
-            });
-    }
-    
-    // Add system message
-    function addSystemMessage(roomId, text) {
-        const message = {
-            text: text,
-            type: 'system',
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
-        
-        // Add message to Firestore
-        return db.collection('rooms').doc(roomId).collection('messages').add(message)
-            .then(() => {
-                // Update room's updatedAt timestamp
-                return db.collection('rooms').doc(roomId).update({
-                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                });
-            })
-            .catch(error => {
-                console.error('Error adding system message:', error);
-                return Promise.reject(error);
-            });
-    }
-    
-    // Show typing indicator
-    function showTypingIndicator() {
-        // Clear previous timeout
-        clearTimeout(state.typingTimeout);
-        
-        // Show typing indicator
-        typingIndicator.classList.remove('hidden');
-        typingIndicator.querySelector('span').textContent = 'Someone is typing';
-        
-        // Set timeout to hide typing indicator after 2 seconds
-        state.typingTimeout = setTimeout(function() {
-            typingIndicator.classList.add('hidden');
-        }, 2000);
-    }
-    
-    // Show direct typing indicator
-    function showDirectTypingIndicator() {
-        // Clear previous timeout
-        clearTimeout(state.directTypingTimeout);
-        
-        // Show typing indicator
-        directTypingIndicator.classList.remove('hidden');
-        directTypingIndicator.querySelector('span').textContent = `${state.currentUserData.username} is typing`;
-        
-        // Set timeout to hide typing indicator after 2 seconds
-        state.directTypingTimeout = setTimeout(function() {
-            directTypingIndicator.classList.add('hidden');
-        }, 2000);
-    }
-    
-    // Show room info
-    function showRoomInfo() {
-        db.collection('rooms').doc(state.currentRoom).get()
-            .then(doc => {
-                if (doc.exists) {
-                    const roomData = doc.data();
-                    
-                    modalRoomName.textContent = roomData.name;
-                    modalRoomDescription.querySelector('p').textContent = roomData.description;
-                    
-                    // Set room type badge
-                    if (roomData.type === 'private') {
-                        roomTypeBadge.textContent = 'Private';
-                        roomTypeBadge.className = 'badge private';
-                    } else {
-                        roomTypeBadge.textContent = 'Public';
-                        roomTypeBadge.className = 'badge public';
-                    }
-                    
-                    // Update members list
-                    roomMembersList.innerHTML = '';
-                    
-                    // Get user data for each member
-                    const memberPromises = (roomData.members || []).map(memberId => 
-                        db.collection('users').doc(memberId).get()
-                    );
-                    
-                    Promise.all(memberPromises)
-                        .then(memberDocs => {
-                            memberDocs.forEach(memberDoc => {
-                                if (memberDoc.exists) {
-                                    const memberData = memberDoc.data();
-                                    const memberItem = document.createElement('li');
-                                    
-                                    memberItem.innerHTML = `
-                                        <div class="member-avatar">
-                                            <img src="${memberData.avatar}" alt="${memberData.username}">
-                                        </div>
-                                        <div class="member-name">${memberData.username}</div>
-                                        ${memberData.uid === roomData.creator ? '<div class="member-role admin">Admin</div>' : ''}
-                                    `;
-                                    
-                                    roomMembersList.appendChild(memberItem);
-                                }
-                            });
-                        })
-                        .catch(error => {
-                            console.error('Error getting room members:', error);
-                        });
-                    
-                    // Show modal
-                    showModal(roomInfoModal);
-                }
-            })
-            .catch(error => {
-                console.error('Error getting room info:', error);
-            });
-    }
-    
-    // Update members count
-    function updateMembersCount() {
-        db.collection('rooms').doc(state.currentRoom).get()
-            .then(doc => {
-                if (doc.exists) {
-                    const roomData = doc.data();
-                    const count = roomData.members ? roomData.members.length : 0;
-                    roomMembersCount.textContent = count === 1 ? '1 member' : `${count} members`;
-                }
-            })
-            .catch(error => {
-                console.error('Error updating members count:', error);
+                alert('Error sending direct message: ' + error.message);
             });
     }
     
@@ -2412,33 +2339,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 return snapshot.ref.getDownloadURL();
             })
             .then(downloadURL => {
-                // Create message object with file
+                // Create message object
                 const message = {
-                    senderId: state.currentUser,
+                    type: 'text',
+                    text: '',
+                    sender: state.currentUser,
                     senderName: state.currentUserData.username,
                     senderAvatar: state.currentUserData.avatar,
-                    text: file.type.startsWith('image/') ? 'Sent an image' : 'Sent a file',
-                    type: 'user',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    media: {
-                        type: file.type.startsWith('image/') ? 'image' : 'file',
-                        url: downloadURL,
-                        name: file.name
-                    }
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
                 
-                // Check if it's a reply
-                if (state.replyingTo) {
-                    message.replyTo = {
-                        id: state.replyingTo.id,
-                        text: state.replyingTo.text,
-                        senderId: state.replyingTo.senderId,
-                        senderName: state.replyingTo.senderName
-                    };
-                    
-                    // Reset reply state
-                    state.replyingTo = null;
-                    replyContainer.classList.add('hidden');
+                // Add file information
+                if (file.type.startsWith('image/')) {
+                    message.image = downloadURL;
+                } else {
+                    message.file = downloadURL;
+                    message.fileName = file.name;
                 }
                 
                 // Add message to Firestore
@@ -2446,7 +2362,7 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(() => {
                 // Update room's updatedAt timestamp
-                return db.collection('rooms').doc(state.currentRoom).update({
+                db.collection('rooms').doc(state.currentRoom).update({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             })
@@ -2458,13 +2374,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Handle direct file upload
     function handleDirectFileUpload(file) {
-        // Create chat ID (sorted userIds to ensure consistency)
-        const participants = [state.currentUser, state.currentChat].sort();
-        const chatId = participants.join('_');
-        
         // Create storage reference
         const storageRef = storage.ref();
-        const fileRef = storageRef.child(`chats/${chatId}/${Date.now()}_${file.name}`);
+        const fileRef = storageRef.child(`chats/${state.currentChat}/${Date.now()}_${file.name}`);
         
         // Upload file
         fileRef.put(file)
@@ -2472,40 +2384,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 return snapshot.ref.getDownloadURL();
             })
             .then(downloadURL => {
-                // Create message object with file
+                // Create message object
                 const message = {
-                    senderId: state.currentUser,
+                    type: 'text',
+                    text: '',
+                    sender: state.currentUser,
                     senderName: state.currentUserData.username,
                     senderAvatar: state.currentUserData.avatar,
-                    text: file.type.startsWith('image/') ? 'Sent an image' : 'Sent a file',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    media: {
-                        type: file.type.startsWith('image/') ? 'image' : 'file',
-                        url: downloadURL,
-                        name: file.name
-                    }
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
                 };
                 
-                // Check if it's a reply
-                if (state.directReplyingTo) {
-                    message.replyTo = {
-                        id: state.directReplyingTo.id,
-                        text: state.directReplyingTo.text,
-                        senderId: state.directReplyingTo.senderId,
-                        senderName: state.directReplyingTo.senderName
-                    };
-                    
-                    // Reset reply state
-                    state.directReplyingTo = null;
-                    directReplyContainer.classList.add('hidden');
+                // Add file information
+                if (file.type.startsWith('image/')) {
+                    message.image = downloadURL;
+                } else {
+                    message.file = downloadURL;
+                    message.fileName = file.name;
                 }
                 
                 // Add message to Firestore
-                return db.collection('chats').doc(chatId).collection('messages').add(message);
+                return db.collection('chats').doc(state.currentChat).collection('messages').add(message);
             })
             .then(() => {
                 // Update chat's updatedAt timestamp
-                return db.collection('chats').doc(chatId).update({
+                db.collection('chats').doc(state.currentChat).update({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
                 });
             })
@@ -2515,16 +2417,177 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
     
-    // Format time
-    function formatTime(date) {
-        const hours = date.getHours().toString().padStart(2, '0');
-        const minutes = date.getMinutes().toString().padStart(2, '0');
-        return `${hours}:${minutes}`;
+    // Upload profile image
+    function uploadProfileImage(file, type) {
+        // Create storage reference
+        const storageRef = storage.ref();
+        const fileRef = storageRef.child(`users/${state.currentUser}/${type}_${Date.now()}`);
+        
+        // Upload file
+        fileRef.put(file)
+            .then(snapshot => {
+                return snapshot.ref.getDownloadURL();
+            })
+            .then(downloadURL => {
+                // Update user data in Firestore
+                const updateData = {};
+                updateData[type] = downloadURL;
+                
+                return db.collection('users').doc(state.currentUser).update(updateData);
+            })
+            .then(() => {
+                // Update local user data
+                state.currentUserData[type] = downloadURL;
+                
+                // Update profile display
+                if (type === 'avatar') {
+                    profileAvatarImg.src = downloadURL;
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading profile image:', error);
+                alert('Error uploading profile image: ' + error.message);
+            });
     }
     
-    // Scroll chat to bottom
-    function scrollToBottom(container) {
-        container.scrollTop = container.scrollHeight;
+    // Toggle follow
+    function toggleFollow(userId) {
+        // Get user data
+        db.collection('users').doc(userId).get()
+            .then(doc => {
+                if (doc.exists) {
+                    const userData = doc.data();
+                    
+                    // Check if already following
+                    const isFollowing = state.currentUserData.following && state.currentUserData.following.includes(userId);
+                    
+                    if (isFollowing) {
+                        // Unfollow user
+                        return db.collection('users').doc(state.currentUser).update({
+                            following: firebase.firestore.FieldValue.arrayRemove(userId)
+                        })
+                        .then(() => {
+                            // Remove from other user's followers
+                            return db.collection('users').doc(userId).update({
+                                followers: firebase.firestore.FieldValue.arrayRemove(state.currentUser)
+                            });
+                        })
+                        .then(() => {
+                            // Update local user data
+                            if (state.currentUserData.following) {
+                                state.currentUserData.following = state.currentUserData.following.filter(id => id !== userId);
+                            }
+                        });
+                    } else {
+                        // Follow user
+                        return db.collection('users').doc(state.currentUser).update({
+                            following: firebase.firestore.FieldValue.arrayUnion(userId)
+                        })
+                        .then(() => {
+                            // Add to other user's followers
+                            return db.collection('users').doc(userId).update({
+                                followers: firebase.firestore.FieldValue.arrayUnion(state.currentUser)
+                            });
+                        })
+                        .then(() => {
+                            // Update local user data
+                            if (!state.currentUserData.following) {
+                                state.currentUserData.following = [];
+                            }
+                            state.currentUserData.following.push(userId);
+                            
+                            // Add notification for other user
+                            return db.collection('users').doc(userId).collection('notifications').add({
+                                type: 'follow',
+                                fromUser: state.currentUser,
+                                read: false,
+                                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                            });
+                        });
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error toggling follow:', error);
+                alert('Error toggling follow: ' + error.message);
+            });
+    }
+    
+    // Update follow button
+    function updateFollowButton(button, userId) {
+        // Check if already following
+        const isFollowing = state.currentUserData.following && state.currentUserData.following.includes(userId);
+        
+        if (isFollowing) {
+            button.textContent = 'Following';
+            button.classList.add('following');
+        } else {
+            button.textContent = 'Follow';
+            button.classList.remove('following');
+        }
+    }
+    
+    // Update rooms list
+    function updateRoomsList(roomsData) {
+        // Update rooms in messages section
+        if (roomsList) {
+            // Get user's recent rooms
+            const userRooms = state.currentUserData ? state.currentUserData.recentRooms || [] : [];
+            
+            // Filter rooms that user is a member of
+            const userRoomsData = roomsData.filter(room => 
+                userRooms.includes(room.id) || 
+                (room.members && room.members.includes(state.currentUser))
+            );
+            
+            // Update user's recent rooms if needed
+            if (state.currentUserData) {
+                const newRecentRooms = userRoomsData.map(room => room.id);
+                if (JSON.stringify(newRecentRooms.sort()) !== JSON.stringify(userRooms.sort())) {
+                    db.collection('users').doc(state.currentUser).update({
+                        recentRooms: newRecentRooms
+                    });
+                    
+                    // Update local user data
+                    state.currentUserData.recentRooms = newRecentRooms;
+                }
+            }
+        }
+    }
+    
+    // Format time
+    function formatTime(date) {
+        const now = new Date();
+        const diff = now - date;
+        
+        // Less than a minute
+        if (diff < 60000) {
+            return 'Just now';
+        }
+        
+        // Less than an hour
+        if (diff < 3600000) {
+            const minutes = Math.floor(diff / 60000);
+            return `${minutes}m ago`;
+        }
+        
+        // Less than a day
+        if (diff < 86400000) {
+            const hours = Math.floor(diff / 3600000);
+            return `${hours}h ago`;
+        }
+        
+        // Less than a week
+        if (diff < 604800000) {
+            const days = Math.floor(diff / 86400000);
+            return `${days}d ago`;
+        }
+        
+        // Format date
+        const day = date.getDate();
+        const month = date.getMonth() + 1;
+        const year = date.getFullYear();
+        return `${day}/${month}/${year}`;
     }
     
     // Initialize the app
