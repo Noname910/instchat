@@ -323,6 +323,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     } else if (error.code === 'auth/configuration-not-found') {
                         alert('Authentication configuration error. Please make sure this domain ('+window.location.hostname+') is added to authorized domains in Firebase console.');
                         console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console: https://console.firebase.google.com/project/instchat-79b7c/authentication/settings');
+                    } else if (error.code === 'auth/operation-not-allowed') {
+                        alert('Email/Password authentication is not enabled in your Firebase project. Please enable it in the Firebase console under Authentication → Sign-in method.');
+                        console.error('Firebase authentication error: Email/Password provider is disabled. Enable it at: https://console.firebase.google.com/project/instchat-79b7c/authentication/providers');
                     } else {
                         alert('Error signing in: ' + error.message);
                     }
@@ -383,6 +386,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 console.error('Firebase configuration error. Make sure the domain is authorized in Firebase console: https://console.firebase.google.com/project/instchat-79b7c/authentication/settings');
                             } else if (error.code === 'auth/email-already-in-use') {
                                 alert('This username is already in use. Please choose a different username.');
+                            } else if (error.code === 'auth/operation-not-allowed') {
+                                alert('Email/Password authentication is not enabled in your Firebase project. Please enable it in the Firebase console under Authentication → Sign-in method.');
+                                console.error('Firebase authentication error: Email/Password provider is disabled. Enable it at: https://console.firebase.google.com/project/instchat-79b7c/authentication/providers');
                             } else {
                                 alert('Error creating account: ' + error.message);
                             }
